@@ -7,10 +7,11 @@
 import { execSync } from "node:child_process";
 import { writeFile } from "../utils/fs.js";
 import { join } from "node:path";
+import { homedir } from "node:os";
 export function runHistory(options) {
     const { outDir, feature, env, last = 50 } = options;
     // Try the existing render-qa-history.mjs if available
-    const legacyScript = join(process.env.DSH_HOME ?? join(require("node:os").homedir(), ".dsh"), "qa-agent", "scripts", "render-qa-history.mjs");
+    const legacyScript = join(process.env.DSH_HOME ?? join(homedir(), ".dsh"), "qa-agent", "scripts", "render-qa-history.mjs");
     try {
         const args = [
             legacyScript,

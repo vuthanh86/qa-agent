@@ -20,9 +20,10 @@ import { parsePlanUrl } from "./ado/client.js";
 import { saveSnapshot, restoreSnapshot, listSnapshots, isAgentBrowserAvailable } from "./snapshot/index.js";
 import { loadAdapters, detectPlatform } from "./platforms/types.js";
 import { writeFile, readFileSafe, generateOutDir, readPrompt } from "./utils/fs.js";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 // ─── Arg Parser ──────────────────────────────────────────────────────────────
-function parseArgs(raw) {
+export function parseArgs(raw) {
     const args = { action: raw[0] ?? "help" };
     let i = 1;
     while (i < raw.length) {
@@ -46,7 +47,7 @@ function parseArgs(raw) {
     return args;
 }
 // ─── Help ────────────────────────────────────────────────────────────────────
-function showHelp() {
+export function showHelp() {
     console.log(`
 qa-agent — Senior-QA AI Orchestrator
 
@@ -88,7 +89,7 @@ EXAMPLES:
 `);
 }
 // ─── Platform Helpers ────────────────────────────────────────────────────────
-async function resolvePlatform(args) {
+export async function resolvePlatform(args) {
     const adapters = await loadAdapters();
     const platformName = args.platform?.toLowerCase();
     if (platformName) {
@@ -115,25 +116,25 @@ async function resolvePlatform(args) {
     process.exit(1);
 }
 // ─── Actions ─────────────────────────────────────────────────────────────────
-async function actionCodegen(args) {
+export async function actionCodegen(args) {
     const scope = args.scope ?? "diff origin/main...HEAD";
     const base = args.base ?? "origin/main";
     const depth = args.depth ?? "smoke";
     const result = runCodegen({ scope, base, depth, outDir: args.outDir });
     console.log(`[qa-agent] codegen → ${result.planPath} (${result.pathCount} paths)`);
 }
-async function actionTranslate(args) {
-    const input = args.scope ?? args.outDir ? join(args.outDir, "plan.md") : "plans/plan.md";
+export async function actionTranslate(args) {
+    const input = args.scope ?? (args.outDir ? join(args.outDir, "plan.md") : "plans/plan.md");
     const outDir = args.outDir ?? "plans";
     const result = runTranslate({ in: input, outDir, target: args.target });
     console.log(`[qa-agent] translate → ${result.scenariosPath} (${result.caseCount} scenario(s))`);
 }
-async function actionReport(args) {
+export async function actionReport(args) {
     const runDir = args.outDir ?? ".";
     const result = runReport({ runDir, skipHistory: args.history === "false" });
     console.log(`[qa-agent] report → ${result.reportPath}`);
 }
-async function actionHistory(args) {
+export async function actionHistory(args) {
     const outDir = args.outDir ?? ".";
     const result = runHistory({
         outDir,
@@ -143,7 +144,7 @@ async function actionHistory(args) {
     });
     console.log(`[qa-agent] history → ${result.htmlPath}`);
 }
-async function actionSnapshot(args) {
+export async function actionSnapshot(args) {
     const feature = args.feature ?? "default";
     const env = args.env ?? "qa";
     if (args.save) {
@@ -170,7 +171,7 @@ async function actionSnapshot(args) {
     }
 }
 // ─── Run Pipeline ────────────────────────────────────────────────────────────
-async function actionRun(args) {
+export async function actionRun(args) {
     const planUrl = args.planUrl;
     if (planUrl) {
         await runModeB(args, planUrl);
@@ -381,7 +382,7 @@ async function runModeB(args, planUrl) {
     console.log(`\n[qa-agent] DONE — artifacts under ${outDir}`);
 }
 // ─── Main ────────────────────────────────────────────────────────────────────
-async function main() {
+export async function main() {
     const args = parseArgs(process.argv.slice(2));
     switch (args.action) {
         case "help":
@@ -413,8 +414,22 @@ async function main() {
             process.exit(1);
     }
 }
-main().catch(err => {
-    console.error(`[qa-agent] Fatal error: ${err.message}`);
-    process.exit(1);
-});
+/** True when this module is the process entry point (not an import). */
+function isEntryPoint() {
+    const entry = process.argv[1];
+    if (!entry)
+        return false;
+    try {
+        return resolve(entry) === resolve(fileURLToPath(import.meta.url));
+    }
+    catch {
+        return false;
+    }
+}
+if (isEntryPoint()) {
+    main().catch(err => {
+        console.error(`[qa-agent] Fatal error: ${err.message}`);
+        process.exit(1);
+    });
+}
 //# sourceMappingURL=cli.js.map

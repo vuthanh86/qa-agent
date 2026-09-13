@@ -5,6 +5,7 @@
  */
 import { readFileSafe, writeFile, memoryDir, ensureDir } from "./fs.js";
 import { join } from "node:path";
+import { homedir } from "node:os";
 /** Read the memory index. */
 export function readMemoryIndex() {
     const raw = readFileSafe(join(memoryDir(), "index.json"));
@@ -48,7 +49,7 @@ export function ensureMemoryStore() {
 }
 /** Resolve the legacy DSH memory path for backward compat. */
 export function legacyMemoryDir() {
-    const home = process.env.DSH_HOME ?? join(require("node:os").homedir(), ".dsh");
+    const home = process.env.DSH_HOME ?? join(homedir(), ".dsh");
     return join(home, "qa-memory");
 }
 //# sourceMappingURL=memory.js.map

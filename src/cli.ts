@@ -22,11 +22,12 @@ import { saveSnapshot, restoreSnapshot, listSnapshots, isAgentBrowserAvailable }
 import { loadAdapters, PlatformAdapter, detectPlatform } from "./platforms/types.js";
 import { writeFile, readFileSafe, ensureDir, generateOutDir, readPrompt } from "./utils/fs.js";
 import { getDiffFiles, getDiffContent, parseDiffScope } from "./utils/git.js";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-interface CliArgs {
+export interface CliArgs {
   action: string;
   scope?: string;
   base?: string;
@@ -53,7 +54,7 @@ interface CliArgs {
 
 // ─── Arg Parser ──────────────────────────────────────────────────────────────
 
-function parseArgs(raw: string[]): CliArgs {
+export function parseArgs(raw: string[]): CliArgs {
   const args: CliArgs = { action: raw[0] ?? "help" };
   let i = 1;
 
@@ -80,7 +81,7 @@ function parseArgs(raw: string[]): CliArgs {
 
 // ─── Help ────────────────────────────────────────────────────────────────────
 
-function showHelp(): void {
+export function showHelp(): void {
   console.log(`
 qa-agent — Senior-QA AI Orchestrator
 
@@ -124,7 +125,7 @@ EXAMPLES:
 
 // ─── Platform Helpers ────────────────────────────────────────────────────────
 
-async function resolvePlatform(args: CliArgs): Promise<PlatformAdapter> {
+export async function resolvePlatform(args: CliArgs): Promise<PlatformAdapter> {
   const adapters = await loadAdapters();
   const platformName = args.platform?.toLowerCase();
 
@@ -154,7 +155,7 @@ async function resolvePlatform(args: CliArgs): Promise<PlatformAdapter> {
 
 // ─── Actions ─────────────────────────────────────────────────────────────────
 
-async function actionCodegen(args: CliArgs): Promise<void> {
+export async function actionCodegen(args: CliArgs): Promise<void> {
   const scope = args.scope ?? "diff origin/main...HEAD";
   const base = args.base ?? "origin/main";
   const depth = (args.depth as "smoke" | "core" | "full") ?? "smoke";
@@ -163,21 +164,21 @@ async function actionCodegen(args: CliArgs): Promise<void> {
   console.log(`[qa-agent] codegen → ${result.planPath} (${result.pathCount} paths)`);
 }
 
-async function actionTranslate(args: CliArgs): Promise<void> {
-  const input = args.scope ?? args.outDir ? join(args.outDir!, "plan.md") : "plans/plan.md";
+export async function actionTranslate(args: CliArgs): Promise<void> {
+  const input = args.scope ?? (args.outDir ? join(args.outDir, "plan.md") : "plans/plan.md");
   const outDir = args.outDir ?? "plans";
 
   const result = runTranslate({ in: input, outDir, target: args.target });
   console.log(`[qa-agent] translate → ${result.scenariosPath} (${result.caseCount} scenario(s))`);
 }
 
-async function actionReport(args: CliArgs): Promise<void> {
+export async function actionReport(args: CliArgs): Promise<void> {
   const runDir = args.outDir ?? ".";
   const result = runReport({ runDir, skipHistory: args.history === "false" });
   console.log(`[qa-agent] report → ${result.reportPath}`);
 }
 
-async function actionHistory(args: CliArgs): Promise<void> {
+export async function actionHistory(args: CliArgs): Promise<void> {
   const outDir = args.outDir ?? ".";
   const result = runHistory({
     outDir,
@@ -188,7 +189,7 @@ async function actionHistory(args: CliArgs): Promise<void> {
   console.log(`[qa-agent] history → ${result.htmlPath}`);
 }
 
-async function actionSnapshot(args: CliArgs): Promise<void> {
+export async function actionSnapshot(args: CliArgs): Promise<void> {
   const feature = args.feature ?? "default";
   const env = args.env ?? "qa";
 
@@ -214,7 +215,7 @@ async function actionSnapshot(args: CliArgs): Promise<void> {
 
 // ─── Run Pipeline ────────────────────────────────────────────────────────────
 
-async function actionRun(args: CliArgs): Promise<void> {
+export async function actionRun(args: CliArgs): Promise<void> {
   const planUrl = args.planUrl;
 
   if (planUrl) {
@@ -442,7 +443,7 @@ async function runModeB(args: CliArgs, planUrl: string): Promise<void> {
 
 // ─── Main ────────────────────────────────────────────────────────────────────
 
-async function main(): Promise<void> {
+export async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
 
   switch (args.action) {
@@ -476,7 +477,20 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch(err => {
-  console.error(`[qa-agent] Fatal error: ${err.message}`);
-  process.exit(1);
-});
+/** True when this module is the process entry point (not an import). */
+function isEntryPoint(): boolean {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  try {
+    return resolve(entry) === resolve(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+if (isEntryPoint()) {
+  main().catch(err => {
+    console.error(`[qa-agent] Fatal error: ${err.message}`);
+    process.exit(1);
+  });
+}
