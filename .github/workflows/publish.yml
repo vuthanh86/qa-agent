@@ -14,17 +14,21 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write # push the v<version> tag
-      id-token: write # npm provenance
+      id-token: write # OIDC for npm trusted publishing + provenance
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0 # need existing tags to know if v<version> is already cut
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 24
           registry-url: https://registry.npmjs.org
           cache: npm
+
+      # Trusted publishing needs npm >= 11.5.1. Node 24 already bundles a new
+      # enough npm; this keeps the job correct if the runner image drifts back.
+      - run: npm install -g npm@latest
 
       - run: npm ci
 
@@ -49,11 +53,12 @@ jobs:
             echo "Publishing $NAME@$VERSION"
           fi
 
+      # Auth comes from the OIDC id-token (npm trusted publishing), not a stored
+      # token. Requires @vuthanh86/qa-agent to have this repo + workflow file
+      # registered as a trusted publisher on npmjs.com.
       - name: Publish
         if: steps.version.outputs.published == 'false'
         run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       # Tag only after a successful publish, so a failed release leaves no tag behind.
       - name: Tag release
