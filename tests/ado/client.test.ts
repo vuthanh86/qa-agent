@@ -261,45 +261,93 @@ describe("getTestSuites", () => {
 });
 
 describe("getTestCases", () => {
-  it("prefers workItem fields and numbers the steps from 1", async () => {
-    fetchMock.mockResolvedValue(
-      jsonResponse({
-        value: [
-          {
-            id: 99,
-            workItem: {
-              id: 42,
-              name: "Login works",
-              state: "Ready",
-              priority: 1,
-              steps: [
-                { action: "Open app", expected: "Login page" },
-                { description: "Enter creds", expected: "Dashboard" },
-              ],
-              createdDate: "2026-01-01",
-              lastUpdatedDate: "2026-02-01",
-            },
-            lastResult: { outcome: "Passed", completedDate: "2026-03-01" },
-          },
-        ],
-      }),
+  /**
+   * Route the TestCase and TestPoint fetches separately — getTestCases reads
+   * attributes from the former and execution history from the latter.
+   */
+  function stubSuite(cases: unknown[], points: unknown[] = []) {
+    fetchMock.mockImplementation(async (url: string) =>
+      jsonResponse({ value: url.includes("/TestPoint") ? points : cases }),
     );
+  }
+
+  /** A test case in the shape ADO actually returns. */
+  function adoCase(fields: Record<string, unknown>, id = 42, name = "Login works") {
+    return {
+      workItem: {
+        id,
+        name,
+        workItemFields: Object.entries(fields).map(([k, v]) => ({ [k]: v })),
+      },
+    };
+  }
+
+  const REAL_STEPS =
+    '<steps id="0" last="2"><step id="1" type="ActionStep">' +
+    "<parameterizedString>&lt;div&gt;Open app&lt;/div&gt;</parameterizedString>" +
+    "<parameterizedString>&lt;div&gt;Login page&lt;/div&gt;</parameterizedString></step>" +
+    '<step id="2" type="ActionStep">' +
+    "<parameterizedString>&lt;div&gt;Enter creds&lt;/div&gt;</parameterizedString>" +
+    "<parameterizedString>&lt;div&gt;Dashboard&lt;/div&gt;</parameterizedString></step></steps>";
+
+  it("reads attributes out of workItemFields", async () => {
+    stubSuite([
+      adoCase({
+        "System.State": "Design",
+        "Microsoft.VSTS.Common.Priority": 1,
+        "System.CreatedDate": "2026-01-01",
+        "System.ChangedDate": "2026-02-01",
+      }),
+    ]);
 
     const [tc] = await getTestCases(config, 1, 2);
 
     expect(tc.id).toBe(42);
     expect(tc.title).toBe("Login works");
+    expect(tc.state).toBe("Design");
     expect(tc.priority).toBe(1);
-    expect(tc.lastResult).toBe("Passed");
+    expect(tc.createdDate).toBe("2026-01-01");
     expect(tc.modifiedDate).toBe("2026-02-01");
+  });
+
+  it("parses the steps XML into numbered steps", async () => {
+    stubSuite([adoCase({ "Microsoft.VSTS.TCM.Steps": REAL_STEPS })]);
+
+    const [tc] = await getTestCases(config, 1, 2);
+
     expect(tc.steps).toEqual([
       { stepNumber: 1, action: "Open app", expected: "Login page" },
       { stepNumber: 2, action: "Enter creds", expected: "Dashboard" },
     ]);
   });
 
-  it("falls back to top-level id/title and default priority", async () => {
-    fetchMock.mockResolvedValue(jsonResponse({ value: [{ id: 7, title: "Bare case" }] }));
+  it("defaults priority to 2 when the field is absent or unparseable", async () => {
+    stubSuite([adoCase({})]);
+    expect((await getTestCases(config, 1, 2))[0].priority).toBe(2);
+
+    stubSuite([adoCase({ "Microsoft.VSTS.Common.Priority": "not-a-number" })]);
+    expect((await getTestCases(config, 1, 3))[0].priority).toBe(2);
+  });
+
+  it("falls back to StateChangeDate when ChangedDate is absent", async () => {
+    stubSuite([adoCase({ "Microsoft.VSTS.Common.StateChangeDate": "2026-05-05" })]);
+
+    expect((await getTestCases(config, 1, 2))[0].modifiedDate).toBe("2026-05-05");
+  });
+
+  it("returns empty steps and blank attributes for a case with no fields", async () => {
+    stubSuite([adoCase({})]);
+
+    const [tc] = await getTestCases(config, 1, 2);
+
+    expect(tc.steps).toEqual([]);
+    expect(tc.state).toBe("");
+    expect(tc.createdDate).toBe("");
+    expect(tc.modifiedDate).toBe("");
+  });
+
+  it("falls back to top-level id and title when workItem is absent", async () => {
+    stubSuite([{ id: 7, title: "Bare case" }]);
 
     const [tc] = await getTestCases(config, 1, 2);
 
@@ -307,7 +355,83 @@ describe("getTestCases", () => {
     expect(tc.title).toBe("Bare case");
     expect(tc.priority).toBe(2);
     expect(tc.steps).toEqual([]);
-    expect(tc.lastResult).toBeNull();
+  });
+
+  describe("execution history from test points", () => {
+    it("attaches the outcome and completion date matching the case id", async () => {
+      stubSuite(
+        [adoCase({})],
+        [
+          {
+            testCaseReference: { id: 42 },
+            results: {
+              outcome: "Passed",
+              lastResultDetails: { dateCompleted: "2026-03-01T10:00:00Z" },
+            },
+          },
+        ],
+      );
+
+      const [tc] = await getTestCases(config, 1, 2);
+
+      expect(tc.lastResult).toBe("Passed");
+      expect(tc.lastResultDate).toBe("2026-03-01T10:00:00Z");
+    });
+
+    it("treats an 'unspecified' outcome as never executed", async () => {
+      stubSuite(
+        [adoCase({})],
+        [{ testCaseReference: { id: 42 }, results: { outcome: "unspecified" } }],
+      );
+
+      expect((await getTestCases(config, 1, 2))[0].lastResult).toBeNull();
+    });
+
+    it("discards ADO's year-0001 placeholder completion date", async () => {
+      stubSuite(
+        [adoCase({})],
+        [
+          {
+            testCaseReference: { id: 42 },
+            results: {
+              outcome: "Passed",
+              lastResultDetails: { dateCompleted: "0001-01-01T00:00:00" },
+            },
+          },
+        ],
+      );
+
+      expect((await getTestCases(config, 1, 2))[0].lastResultDate).toBeNull();
+    });
+
+    it("leaves history null for a case with no matching test point", async () => {
+      stubSuite([adoCase({})], [{ testCaseReference: { id: 999 }, results: { outcome: "Passed" } }]);
+
+      const [tc] = await getTestCases(config, 1, 2);
+
+      expect(tc.lastResult).toBeNull();
+      expect(tc.lastResultDate).toBeNull();
+    });
+
+    it("still returns the cases when the test point fetch fails", async () => {
+      fetchMock.mockImplementation(async (url: string) => {
+        if (url.includes("/TestPoint")) throw new Error("500");
+        return jsonResponse({ value: [adoCase({})] });
+      });
+
+      const cases = await getTestCases(config, 1, 2);
+
+      expect(cases).toHaveLength(1);
+      expect(cases[0].lastResult).toBeNull();
+    });
+
+    it("skips the test point fetch entirely when the suite has no cases", async () => {
+      stubSuite([]);
+
+      await getTestCases(config, 1, 2);
+
+      expect(fetchMock.mock.calls.every(c => !String(c[0]).includes("/TestPoint"))).toBe(true);
+    });
   });
 
   it("returns an empty array when the suite has no cases", async () => {

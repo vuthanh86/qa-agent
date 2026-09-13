@@ -7,6 +7,7 @@
  */
 
 import { writeFile, readFileSafe, ensureDir, adoCacheDir } from "../utils/fs.js";
+import { flattenWorkItemFields, parseTestSteps, normalizeOutcome } from "./work-item-fields.js";
 import { join } from "node:path";
 
 // The testplan resources are preview-only; plain "7.2" is rejected with HTTP 400.
@@ -167,6 +168,45 @@ export async function getTestSuites(config: AdoConfig, planId: number): Promise<
   }));
 }
 
+/**
+ * Last-run outcome per test case id, from the suite's test points.
+ *
+ * Outcomes live on test points, not on the test case itself. A failure here is
+ * non-fatal: the audit degrades to "execution history unknown" rather than
+ * aborting the whole plan pull.
+ */
+async function getLastResults(
+  config: AdoConfig,
+  planId: number,
+  suiteId: number,
+): Promise<Map<number, { outcome: string | null; date: string | null }>> {
+  const byCaseId = new Map<number, { outcome: string | null; date: string | null }>();
+
+  try {
+    const data = await adoFetch(
+      config,
+      `/_apis/testplan/plans/${planId}/suites/${suiteId}/TestPoint`,
+      `points/${config.org}/${config.project}/${planId}/${suiteId}`,
+    );
+
+    for (const point of data.value ?? []) {
+      const caseId = point.testCaseReference?.id;
+      if (typeof caseId !== "number") continue;
+
+      const completed = point.results?.lastResultDetails?.dateCompleted;
+      byCaseId.set(caseId, {
+        outcome: normalizeOutcome(point.results?.outcome),
+        // ADO uses year 0001 as "never completed".
+        date: completed && !completed.startsWith("0001-") ? completed : null,
+      });
+    }
+  } catch {
+    // Leave the map empty; callers treat a miss as unknown execution history.
+  }
+
+  return byCaseId;
+}
+
 /** List test cases under a suite. */
 export async function getTestCases(config: AdoConfig, planId: number, suiteId: number): Promise<AdoTestCase[]> {
   const data = await adoFetch(
@@ -175,22 +215,32 @@ export async function getTestCases(config: AdoConfig, planId: number, suiteId: n
     `/_apis/testplan/plans/${planId}/suites/${suiteId}/TestCase`,
     `cases/${config.org}/${config.project}/${planId}/${suiteId}`,
   );
-  return (data.value ?? []).map((tc: any) => ({
-    id: tc.workItem?.id ?? tc.id,
-    title: tc.workItem?.name ?? tc.title ?? "",
-    state: tc.workItem?.state ?? "",
-    priority: tc.workItem?.priority ?? 2,
-    steps: (tc.workItem?.steps ?? []).map((s: any, i: number) => ({
-      stepNumber: i + 1,
-      action: s.action ?? s.description ?? "",
-      expected: s.expected ?? "",
-    })),
-    lastResult: tc.lastResult?.outcome ?? null,
-    lastResultDate: tc.lastResult?.completedDate ?? null,
-    createdDate: tc.workItem?.createdDate ?? "",
-    modifiedDate: tc.workItem?.lastUpdatedDate ?? "",
-    linkedWorkItems: [],
-  }));
+
+  const cases = data.value ?? [];
+  const lastResults = cases.length > 0
+    ? await getLastResults(config, planId, suiteId)
+    : new Map();
+
+  return cases.map((tc: any) => {
+    // Attributes arrive as an array of single-key objects, not plain properties.
+    const fields = flattenWorkItemFields(tc.workItem?.workItemFields);
+    const id = tc.workItem?.id ?? tc.id;
+    const priority = Number(fields["Microsoft.VSTS.Common.Priority"]);
+    const result = lastResults.get(id);
+
+    return {
+      id,
+      title: tc.workItem?.name ?? tc.title ?? "",
+      state: fields["System.State"] ?? "",
+      priority: Number.isFinite(priority) ? priority : 2,
+      steps: parseTestSteps(fields["Microsoft.VSTS.TCM.Steps"]),
+      lastResult: result?.outcome ?? null,
+      lastResultDate: result?.date ?? null,
+      createdDate: fields["System.CreatedDate"] ?? "",
+      modifiedDate: fields["System.ChangedDate"] ?? fields["Microsoft.VSTS.Common.StateChangeDate"] ?? "",
+      linkedWorkItems: [],
+    };
+  });
 }
 
 /** Fetch a work item by ID. */
