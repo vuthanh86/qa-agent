@@ -91,6 +91,20 @@ describe("parsePlanUrl", () => {
     expect(parsed!.planId).toBe(7);
   });
 
+  it("ignores query parameters trailing planId, such as suiteId", () => {
+    expect(
+      parsePlanUrl(
+        "https://dev.azure.com/d2odevops/PMI/_testPlans/define?planId=43944&suiteId=43964",
+      ),
+    ).toEqual({ org: "d2odevops", project: "PMI", planId: 43944 });
+  });
+
+  it("preserves the case of the project segment", () => {
+    expect(
+      parsePlanUrl("https://dev.azure.com/d2odevops/PMI/_testPlans/define?planId=1")!.project,
+    ).toBe("PMI");
+  });
+
   it.each([
     "https://dev.azure.com/contoso/pmi/_testPlans/execute",
     "https://dev.azure.com/contoso/_testPlans/execute?planId=1",
