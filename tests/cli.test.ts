@@ -137,6 +137,30 @@ describe("parseArgs", () => {
     expect(args.adoProject).toBe("pmi");
   });
 
+  it("normalises kebab-case flags to camelCase", () => {
+    const args = cli.parseArgs([
+      "run",
+      "--plan-url",
+      "https://dev.azure.com/o/p/_testPlans/execute?planId=1",
+      "--work-item",
+      "33672",
+    ]);
+
+    expect(args.planUrl).toBe("https://dev.azure.com/o/p/_testPlans/execute?planId=1");
+    expect(args.workItem).toBe("33672");
+  });
+
+  it("leaves already-camelCase flags untouched", () => {
+    const args = cli.parseArgs(["run", "--outDir", "runs/x", "--timeboxMs", "1000"]);
+
+    expect(args.outDir).toBe("runs/x");
+    expect(args.timeboxMs).toBe("1000");
+  });
+
+  it("normalises a multi-dash flag across every segment", () => {
+    expect(cli.parseArgs(["run", "--ado-plan-id", "123"]).adoPlanId).toBe("123");
+  });
+
   it("parses single-dash flags as booleans", () => {
     expect(cli.parseArgs(["help", "-h"]).h).toBe("true");
   });
@@ -673,6 +697,133 @@ describe("actionRun — Mode B", () => {
     await cli.actionRun({ action: "run", platform: "dsh", planUrl, outDir: "runs/x" });
 
     expect(logSpy.mock.calls.flat().join("\n")).toContain("agent-browser available");
+  });
+});
+
+describe("actionRun — mode routing on --plan-url", () => {
+  const planUrl = "https://dev.azure.com/contoso/pmi/_testPlans/execute?planId=123";
+
+  beforeEach(() => {
+    mocks.parsePlanUrl.mockReturnValue({ org: "contoso", project: "pmi", planId: 123 });
+    mocks.getTestPlan.mockResolvedValue({ id: 123, name: "Regression", state: "Active" });
+    mocks.getTestSuites.mockResolvedValue([{ id: 1, name: "Root" }]);
+    mocks.getTestCases.mockResolvedValue([{ id: 42, title: "Login" }]);
+  });
+
+  describe("without a plan URL — Mode A (generate from scratch)", () => {
+    it("runs the generate pipeline", async () => {
+      await cli.actionRun({ action: "run", platform: "dsh", outDir: "runs/x" });
+
+      expect(mocks.runCodegen).toHaveBeenCalled();
+      expect(mocks.runTranslate).toHaveBeenCalled();
+      expect(mocks.runReport).toHaveBeenCalled();
+    });
+
+    it("never touches Azure DevOps", async () => {
+      await cli.actionRun({ action: "run", platform: "dsh", outDir: "runs/x" });
+
+      expect(mocks.parsePlanUrl).not.toHaveBeenCalled();
+      expect(mocks.getTestPlan).not.toHaveBeenCalled();
+      expect(mocks.getTestSuites).not.toHaveBeenCalled();
+      expect(mocks.getTestCases).not.toHaveBeenCalled();
+    });
+
+    it("announces Mode A", async () => {
+      const logSpy = vi.spyOn(console, "log");
+
+      await cli.actionRun({ action: "run", platform: "dsh", outDir: "runs/x" });
+
+      expect(logSpy.mock.calls.flat().join("\n")).toContain("Mode A — Generate from scratch");
+    });
+
+    it("treats an empty plan URL as absent and stays in Mode A", async () => {
+      await cli.actionRun({ action: "run", platform: "dsh", outDir: "runs/x", planUrl: "" });
+
+      expect(mocks.runCodegen).toHaveBeenCalled();
+      expect(mocks.parsePlanUrl).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("with a plan URL — Mode B (audit existing plan)", () => {
+    it("runs the audit pipeline against the given URL", async () => {
+      await cli.actionRun({ action: "run", platform: "dsh", planUrl, outDir: "runs/x" });
+
+      expect(mocks.parsePlanUrl).toHaveBeenCalledWith(planUrl);
+      expect(mocks.getTestPlan).toHaveBeenCalled();
+      expect(mocks.getTestSuites).toHaveBeenCalled();
+    });
+
+    it("never runs the generate phases", async () => {
+      await cli.actionRun({ action: "run", platform: "dsh", planUrl, outDir: "runs/x" });
+
+      expect(mocks.runCodegen).not.toHaveBeenCalled();
+      expect(mocks.runTranslate).not.toHaveBeenCalled();
+      expect(mocks.runReport).not.toHaveBeenCalled();
+    });
+
+    it("announces Mode B", async () => {
+      const logSpy = vi.spyOn(console, "log");
+
+      await cli.actionRun({ action: "run", platform: "dsh", planUrl, outDir: "runs/x" });
+
+      expect(logSpy.mock.calls.flat().join("\n")).toContain("Mode B — Audit existing test plan");
+    });
+
+    it("routes on presence of the flag, not on the URL being valid", async () => {
+      mocks.parsePlanUrl.mockReturnValue(null);
+
+      await expect(
+        cli.actionRun({ action: "run", platform: "dsh", planUrl: "garbage" }),
+      ).rejects.toThrow(ProcessExit);
+
+      // Mode B was entered and rejected the URL; it did not silently fall back to Mode A.
+      expect(mocks.parsePlanUrl).toHaveBeenCalledWith("garbage");
+      expect(mocks.runCodegen).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("dispatched through the documented CLI flag", () => {
+    const originalArgv = process.argv;
+
+    afterEach(() => {
+      process.argv = originalArgv;
+    });
+
+    /** Run main() with the given CLI arguments. */
+    function runMain(...args: string[]) {
+      process.argv = ["node", "cli.js", ...args];
+      return cli.main();
+    }
+
+    it("selects Mode A for 'run' with no --plan-url", async () => {
+      await runMain("run", "--platform", "dsh", "--outDir", "runs/x");
+
+      expect(mocks.runCodegen).toHaveBeenCalled();
+      expect(mocks.getTestPlan).not.toHaveBeenCalled();
+    });
+
+    it("selects Mode B for 'run --plan-url <url>'", async () => {
+      await runMain("run", "--platform", "dsh", "--plan-url", planUrl, "--outDir", "runs/x");
+
+      expect(mocks.parsePlanUrl).toHaveBeenCalledWith(planUrl);
+      expect(mocks.getTestPlan).toHaveBeenCalled();
+      expect(mocks.runCodegen).not.toHaveBeenCalled();
+    });
+
+    it("accepts the camelCase --planUrl spelling too", async () => {
+      await runMain("run", "--platform", "dsh", "--planUrl", planUrl, "--outDir", "runs/x");
+
+      expect(mocks.parsePlanUrl).toHaveBeenCalledWith(planUrl);
+      expect(mocks.runCodegen).not.toHaveBeenCalled();
+    });
+
+    it("exits when --plan-url is passed with no value", async () => {
+      mocks.parsePlanUrl.mockReturnValue(null);
+
+      await expect(runMain("run", "--platform", "dsh", "--plan-url")).rejects.toThrow(ProcessExit);
+
+      expect(mocks.parsePlanUrl).toHaveBeenCalledWith("true");
+    });
   });
 });
 

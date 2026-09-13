@@ -35,8 +35,8 @@ export function parseArgs(raw) {
                 val = raw[i + 1];
                 i++;
             }
-            // Normalize dots to camelCase for nested flags
-            const normalized = key.replace(/\.([a-z])/g, (_, c) => c.toUpperCase());
+            // Normalize dots and dashes to camelCase: --ado.org -> adoOrg, --plan-url -> planUrl
+            const normalized = key.replace(/[.-]([a-z])/g, (_, c) => c.toUpperCase());
             args[normalized] = val;
         }
         else if (a.startsWith("-")) {
