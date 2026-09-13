@@ -376,7 +376,7 @@ async function runModeB(args: CliArgs, planUrl: string): Promise<void> {
     writeFile(join(outDir, "ado-plan.json"), JSON.stringify({ plan, suites, cases: allCases }, null, 2));
   } catch (err: any) {
     console.error(`  → ADO fetch failed: ${err.message}`);
-    console.error("  → Check ADO_PAT and network access.");
+    console.error("  → Check AZURE_DEVOPS_PAT and network access.");
     process.exit(1);
   }
 

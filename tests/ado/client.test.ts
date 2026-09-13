@@ -23,7 +23,7 @@ type AdoTestCase = Parameters<typeof auditTestCase>[0];
 
 let tmp: string;
 let fetchMock: ReturnType<typeof vi.fn>;
-const originalPat = process.env.ADO_PAT;
+const originalPat = process.env.AZURE_DEVOPS_PAT;
 
 const config = { org: "contoso", project: "pmi", pat: "secret-pat" };
 
@@ -62,14 +62,14 @@ beforeEach(() => {
   homedirMock.mockReturnValue(tmp);
   fetchMock = vi.fn();
   vi.stubGlobal("fetch", fetchMock);
-  delete process.env.ADO_PAT;
+  delete process.env.AZURE_DEVOPS_PAT;
 });
 
 afterEach(() => {
   rmSync(tmp, { recursive: true, force: true });
   vi.unstubAllGlobals();
-  if (originalPat === undefined) delete process.env.ADO_PAT;
-  else process.env.ADO_PAT = originalPat;
+  if (originalPat === undefined) delete process.env.AZURE_DEVOPS_PAT;
+  else process.env.AZURE_DEVOPS_PAT = originalPat;
 });
 
 describe("parsePlanUrl", () => {
@@ -119,12 +119,12 @@ describe("parsePlanUrl", () => {
 
 describe("adoFetch behaviour (via getTestPlan)", () => {
   it("throws a clear error when no PAT is available", async () => {
-    await expect(getTestPlan({ org: "o", project: "p" }, 1)).rejects.toThrow(/ADO_PAT is required/);
+    await expect(getTestPlan({ org: "o", project: "p" }, 1)).rejects.toThrow(/AZURE_DEVOPS_PAT is required/);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("falls back to the ADO_PAT env var when config has no pat", async () => {
-    process.env.ADO_PAT = "env-pat";
+  it("falls back to the AZURE_DEVOPS_PAT env var when config has no pat", async () => {
+    process.env.AZURE_DEVOPS_PAT = "env-pat";
     fetchMock.mockResolvedValue(jsonResponse({ id: 1, name: "Plan" }));
 
     await getTestPlan({ org: "o", project: "p" }, 1);
@@ -149,8 +149,16 @@ describe("adoFetch behaviour (via getTestPlan)", () => {
     await getTestPlan(config, 9);
 
     expect(fetchMock.mock.calls[0][0]).toBe(
-      "https://dev.azure.com/contoso/pmi/_apis/testplan/plans/9?api-version=7.2",
+      "https://dev.azure.com/contoso/pmi/_apis/testplan/plans/9?api-version=7.2-preview",
     );
+  });
+
+  it("requests a preview api-version, which the testplan resources require", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ id: 9, name: "Plan" }));
+
+    await getTestPlan(config, 9);
+
+    expect(fetchMock.mock.calls[0][0]).toMatch(/api-version=[\d.]+-preview/);
   });
 
   it("throws with the status and truncated body on a non-ok response", async () => {
@@ -306,6 +314,16 @@ describe("getTestCases", () => {
     fetchMock.mockResolvedValue(jsonResponse({ value: [] }));
 
     expect(await getTestCases(config, 1, 2)).toEqual([]);
+  });
+
+  it("requests the singular TestCase resource, which is the one ADO serves", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ value: [] }));
+
+    await getTestCases(config, 43944, 43964);
+
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      "https://dev.azure.com/contoso/pmi/_apis/testplan/plans/43944/suites/43964/TestCase?api-version=7.2-preview",
+    );
   });
 });
 

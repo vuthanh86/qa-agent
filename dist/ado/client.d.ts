@@ -2,7 +2,7 @@
  * Azure DevOps REST client (v7.2).
  *
  * Handles: test plan pull, test case CRUD, work item fetch.
- * Auth via ADO_PAT env var (Basic auth).
+ * Auth via AZURE_DEVOPS_PAT env var (Basic auth).
  * Cache: 1-hour TTL in ~/.qa-agent/ado-cache/.
  */
 export interface AdoConfig {

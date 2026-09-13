@@ -51,6 +51,6 @@ Usage: /qa-agent run --scope "diff main...HEAD" --depth smoke
 export QA_BASE_URL="https://qa.app.contoso.com"
 export QA_USER="qa-bot"
 export QA_PASS="..."
-export ADO_PAT="..."       # for ADO test plan audit
+export AZURE_DEVOPS_PAT="..."       # for ADO test plan audit
 export ANTHROPIC_API_KEY="..."  # if not already configured
 ```

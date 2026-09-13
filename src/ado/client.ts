@@ -2,14 +2,15 @@
  * Azure DevOps REST client (v7.2).
  *
  * Handles: test plan pull, test case CRUD, work item fetch.
- * Auth via ADO_PAT env var (Basic auth).
+ * Auth via AZURE_DEVOPS_PAT env var (Basic auth).
  * Cache: 1-hour TTL in ~/.qa-agent/ado-cache/.
  */
 
 import { writeFile, readFileSafe, ensureDir, adoCacheDir } from "../utils/fs.js";
 import { join } from "node:path";
 
-const API_VERSION = "7.2";
+// The testplan resources are preview-only; plain "7.2" is rejected with HTTP 400.
+const API_VERSION = "7.2-preview";
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 
 export interface AdoConfig {
@@ -89,7 +90,7 @@ export function parsePlanUrl(url: string): { org: string; project: string; planI
 
 /** Resolve the PAT from config or env. */
 function resolvePat(config: AdoConfig): string {
-  return config.pat ?? process.env.ADO_PAT ?? "";
+  return config.pat ?? process.env.AZURE_DEVOPS_PAT ?? "";
 }
 
 /** Build the Basic auth header. */
@@ -119,7 +120,7 @@ async function adoFetch(
   }
 
   const pat = resolvePat(config);
-  if (!pat) throw new Error("ADO_PAT is required. Set ADO_PAT env var or pass --ado.pat.");
+  if (!pat) throw new Error("AZURE_DEVOPS_PAT is required. Set AZURE_DEVOPS_PAT env var or pass --ado.pat.");
 
   const resp = await fetch(`${baseUrl(config)}${path}?api-version=${API_VERSION}`, {
     headers: {
@@ -170,7 +171,8 @@ export async function getTestSuites(config: AdoConfig, planId: number): Promise<
 export async function getTestCases(config: AdoConfig, planId: number, suiteId: number): Promise<AdoTestCase[]> {
   const data = await adoFetch(
     config,
-    `/_apis/testplan/plans/${planId}/suites/${suiteId}/testcases`,
+    // The resource is "TestCase" (singular); "testcases" returns HTTP 404.
+    `/_apis/testplan/plans/${planId}/suites/${suiteId}/TestCase`,
     `cases/${config.org}/${config.project}/${planId}/${suiteId}`,
   );
   return (data.value ?? []).map((tc: any) => ({

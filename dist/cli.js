@@ -320,7 +320,7 @@ async function runModeB(args, planUrl) {
     }
     catch (err) {
         console.error(`  → ADO fetch failed: ${err.message}`);
-        console.error("  → Check ADO_PAT and network access.");
+        console.error("  → Check AZURE_DEVOPS_PAT and network access.");
         process.exit(1);
     }
     // Phase 2 — audit (AI)
