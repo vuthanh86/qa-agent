@@ -3,6 +3,7 @@ name: Publish to npm
 on:
   push:
     branches: [main]
+  workflow_dispatch: # manual trigger; the version guard below still applies
 
 concurrency:
   group: publish-npm
