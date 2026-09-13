@@ -1,0 +1,42 @@
+{
+  "name": "@vuthanh86/qa-agent",
+  "version": "1.0.0",
+  "description": "Senior-QA AI orchestrator — generate test cases, audit ADO test plans, run end-to-end UI tests via agent-browser, with platform adapters for DSH, Claude Code, Gemini CLI, and Minimax Code.",
+  "bin": {
+    "qa-agent": "./dist/cli.js"
+  },
+  "main": "./dist/cli.js",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/cli.js",
+    "dev": "tsc --watch"
+  },
+  "files": [
+    "dist/",
+    "prompts/",
+    "integrations/",
+    "README.md"
+  ],
+  "keywords": [
+    "qa",
+    "testing",
+    "agent-browser",
+    "e2e",
+    "test-automation",
+    "ado",
+    "azure-devops",
+    "test-plans"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0"
+  }
+}

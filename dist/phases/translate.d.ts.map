@@ -1,0 +1,1 @@
+{"version":3,"file":"translate.d.ts","sourceRoot":"","sources":["../../src/phases/translate.ts"],"names":[],"mappings":"AAAA;;;;;GAKG;AAKH,MAAM,WAAW,gBAAgB;IAC/B,EAAE,EAAE,MAAM,CAAC;IACX,MAAM,EAAE,MAAM,CAAC;IACf,MAAM,CAAC,EAAE,MAAM,CAAC;CACjB;AAED,MAAM,WAAW,eAAe;IAC9B,aAAa,EAAE,MAAM,CAAC;IACtB,SAAS,EAAE,MAAM,CAAC;CACnB;AAED,wBAAgB,YAAY,CAAC,OAAO,EAAE,gBAAgB,GAAG,eAAe,CA4DvE"}
