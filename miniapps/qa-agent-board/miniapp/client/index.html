@@ -1,0 +1,707 @@
+<!doctype html>
+<html lang="en" data-theme="auto">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>QA Agent Board</title>
+    <style>
+      :root,
+      [data-theme='light'] {
+        --mcode-bg: #ffffff;
+        --mcode-bg-secondary: #f5f5f5;
+        --mcode-surface: #ffffff;
+        --mcode-surface-muted: #fafafa;
+        --mcode-text: #171717;
+        --mcode-text-muted: #666666;
+        --mcode-text-subtle: #adadad;
+        --mcode-border: #0a0a0a14;
+        --mcode-border-strong: #0a0a0af2;
+        --mcode-accent: #0094fc;
+        --mcode-success: #04b54b;
+        --mcode-warning: #f56811;
+        --mcode-danger: #f73646;
+        --mcode-primary-action-bg: #171717;
+        --mcode-primary-action-text: #ffffff;
+      }
+      [data-theme='dark'] {
+        --mcode-bg: #171717;
+        --mcode-bg-secondary: #1c1c1c;
+        --mcode-surface: #262626;
+        --mcode-surface-muted: #262626;
+        --mcode-text: #ededed;
+        --mcode-text-muted: #949494;
+        --mcode-text-subtle: #666666;
+        --mcode-border: #ffffff14;
+        --mcode-border-strong: #fffffff2;
+        --mcode-accent: #0077d9;
+        --mcode-success: #009c3d;
+        --mcode-warning: #e25507;
+        --mcode-danger: #e31937;
+        --mcode-primary-action-bg: #ffffff;
+        --mcode-primary-action-text: #171717;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root:not([data-theme='light']) {
+          --mcode-bg: #171717;
+          --mcode-bg-secondary: #1c1c1c;
+          --mcode-surface: #262626;
+          --mcode-surface-muted: #262626;
+          --mcode-text: #ededed;
+          --mcode-text-muted: #949494;
+          --mcode-text-subtle: #666666;
+          --mcode-border: #ffffff14;
+          --mcode-border-strong: #fffffff2;
+          --mcode-accent: #0077d9;
+          --mcode-success: #009c3d;
+          --mcode-warning: #e25507;
+          --mcode-danger: #e31937;
+          --mcode-primary-action-bg: #ffffff;
+          --mcode-primary-action-text: #171717;
+        }
+      }
+
+      * { box-sizing: border-box; }
+      html, body { margin: 0; padding: 0; }
+      body {
+        background: var(--mcode-bg);
+        color: var(--mcode-text);
+        font-family: ui-sans-serif, -apple-system, system-ui, 'Segoe UI', Helvetica, Arial, sans-serif;
+        font-size: 14px;
+        line-height: 1.5;
+        min-height: 100vh;
+      }
+
+      header.page {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 24px;
+        border-bottom: 1px solid var(--mcode-border);
+        background: var(--mcode-surface);
+      }
+      header.page h1 {
+        font-size: 18px;
+        line-height: 28px;
+        font-weight: 600;
+        margin: 0 0 4px;
+      }
+      header.page .subtitle {
+        color: var(--mcode-text-muted);
+        font-size: 12px;
+        line-height: 16px;
+        margin: 0;
+      }
+      header.page .header-actions {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-shrink: 0;
+      }
+
+      nav.tabs {
+        display: flex;
+        gap: 4px;
+        padding: 0 24px;
+        border-bottom: 1px solid var(--mcode-border);
+        background: var(--mcode-surface);
+      }
+      nav.tabs button {
+        appearance: none;
+        background: transparent;
+        color: var(--mcode-text-muted);
+        border: none;
+        border-bottom: 2px solid transparent;
+        padding: 12px 12px;
+        font: inherit;
+        cursor: pointer;
+        margin-bottom: -1px;
+      }
+      nav.tabs button:hover { color: var(--mcode-text); }
+      nav.tabs button[aria-current='page'] {
+        color: var(--mcode-text);
+        border-bottom-color: var(--mcode-accent);
+        font-weight: 500;
+      }
+
+      main {
+        padding: 24px;
+        max-width: 1100px;
+        margin: 0 auto;
+      }
+
+      .panel {
+        background: var(--mcode-surface);
+        border: 1px solid var(--mcode-border);
+        border-radius: 12px;
+        padding: 20px;
+        margin-bottom: 16px;
+      }
+      .panel h2 {
+        font-size: 16px;
+        line-height: 24px;
+        font-weight: 500;
+        margin: 0 0 4px;
+      }
+      .panel .description {
+        color: var(--mcode-text-muted);
+        margin: 0 0 16px;
+      }
+
+      form.run-form {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+      }
+      form.run-form .full { grid-column: 1 / -1; }
+      form.run-form label {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        font-size: 12px;
+        color: var(--mcode-text-muted);
+      }
+      form.run-form input,
+      form.run-form select {
+        appearance: none;
+        height: 36px;
+        padding: 0 12px;
+        border-radius: 8px;
+        border: 1px solid var(--mcode-border);
+        background: var(--mcode-bg);
+        color: var(--mcode-text);
+        font: inherit;
+        font-size: 14px;
+      }
+      form.run-form input:focus,
+      form.run-form select:focus {
+        outline: none;
+        border-color: var(--mcode-accent);
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--mcode-accent) 25%, transparent);
+      }
+      form.run-form .actions {
+        grid-column: 1 / -1;
+        display: flex;
+        gap: 8px;
+        justify-content: flex-end;
+      }
+
+      button.primary,
+      button.secondary,
+      button.danger {
+        appearance: none;
+        height: 36px;
+        padding: 0 16px;
+        border-radius: 8px;
+        font: inherit;
+        font-size: 14px;
+        cursor: pointer;
+        border: 1px solid transparent;
+      }
+      button.primary {
+        background: var(--mcode-primary-action-bg);
+        color: var(--mcode-primary-action-text);
+      }
+      button.primary:hover:not(:disabled) { opacity: 0.9; }
+      button.secondary {
+        background: var(--mcode-surface-muted);
+        color: var(--mcode-text);
+        border-color: var(--mcode-border);
+      }
+      button.secondary:hover:not(:disabled) { background: var(--mcode-bg-secondary); }
+      button.danger {
+        background: transparent;
+        color: var(--mcode-danger);
+        border-color: var(--mcode-border);
+      }
+      button.danger:hover:not(:disabled) {
+        background: color-mix(in srgb, var(--mcode-danger) 8%, transparent);
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 2px 10px;
+        border-radius: 999px;
+        font-size: 12px;
+        line-height: 20px;
+        border: 1px solid var(--mcode-border);
+        background: var(--mcode-surface-muted);
+        color: var(--mcode-text-muted);
+      }
+      .pill.running   { color: var(--mcode-warning); border-color: var(--mcode-warning); }
+      .pill.completed { color: var(--mcode-success); border-color: var(--mcode-success); }
+      .pill.failed    { color: var(--mcode-danger);  border-color: var(--mcode-danger);  }
+      .pill.queued    { color: var(--mcode-text-muted); }
+      .pill.orphaned  { color: var(--mcode-text-subtle); }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 14px;
+      }
+      th, td {
+        text-align: left;
+        padding: 10px 12px;
+        border-bottom: 1px solid var(--mcode-border);
+      }
+      th {
+        color: var(--mcode-text-muted);
+        font-weight: 500;
+        background: var(--mcode-surface-muted);
+      }
+      tbody tr:hover { background: var(--mcode-surface-muted); }
+      td.mono, code, pre {
+        font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 12px;
+      }
+
+      .status-banner {
+        padding: 12px 16px;
+        border-radius: 8px;
+        margin-bottom: 16px;
+        font-size: 13px;
+        border: 1px solid var(--mcode-border);
+      }
+      .status-banner.info    { background: color-mix(in srgb, var(--mcode-accent) 8%, transparent); color: var(--mcode-text); }
+      .status-banner.warning { background: color-mix(in srgb, var(--mcode-warning) 8%, transparent); color: var(--mcode-text); }
+      .status-banner.danger  { background: color-mix(in srgb, var(--mcode-danger) 8%, transparent); color: var(--mcode-text); }
+
+      pre.log {
+        max-height: 320px;
+        overflow: auto;
+        background: var(--mcode-bg-secondary);
+        padding: 12px;
+        border-radius: 8px;
+        border: 1px solid var(--mcode-border);
+        white-space: pre-wrap;
+        word-break: break-word;
+        margin: 0;
+      }
+
+      ul.artifacts {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      ul.artifacts a {
+        color: var(--mcode-accent);
+        text-decoration: none;
+        padding: 4px 10px;
+        border: 1px solid var(--mcode-border);
+        border-radius: 6px;
+        font-size: 13px;
+      }
+      ul.artifacts a:hover { background: var(--mcode-surface-muted); }
+
+      .empty {
+        padding: 24px;
+        text-align: center;
+        color: var(--mcode-text-muted);
+        border: 1px dashed var(--mcode-border);
+        border-radius: 12px;
+      }
+
+      .skeleton {
+        background: linear-gradient(90deg, var(--mcode-surface-muted), var(--mcode-bg-secondary), var(--mcode-surface-muted));
+        background-size: 200% 100%;
+        animation: shimmer 1.4s linear infinite;
+        border-radius: 6px;
+        height: 14px;
+      }
+      @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+      @media (prefers-reduced-motion: reduce) {
+        .skeleton { animation: none; background: var(--mcode-surface-muted); }
+      }
+
+      .theme-toggle {
+        appearance: none;
+        background: transparent;
+        border: 1px solid var(--mcode-border);
+        color: var(--mcode-text-muted);
+        padding: 6px 10px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 12px;
+      }
+      .theme-toggle:hover { color: var(--mcode-text); }
+
+      @media (max-width: 768px) {
+        form.run-form { grid-template-columns: 1fr; }
+        header.page { flex-direction: column; align-items: stretch; }
+        main { padding: 16px; }
+        nav.tabs { padding: 0 16px; }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="page">
+      <div>
+        <h1>QA Agent Board</h1>
+        <p class="subtitle" id="subtitle">Run Mode B audits on Azure DevOps test plans and review artifacts.</p>
+      </div>
+      <div class="header-actions">
+        <span id="config-pill" class="pill" aria-live="polite">checking…</span>
+        <button class="theme-toggle" id="theme-toggle" aria-label="Toggle color theme">theme</button>
+      </div>
+    </header>
+
+    <nav class="tabs" aria-label="Sections">
+      <button id="tab-audit" aria-current="page">Audit</button>
+      <button id="tab-runs">Runs</button>
+      <button id="tab-plans">Plans</button>
+    </nav>
+
+    <main>
+      <section id="view-audit" aria-labelledby="tab-audit">
+        <div class="panel">
+          <h2>Submit a Mode B audit</h2>
+          <p class="description">Pull the test plan from ADO, run the AI audit, and write artifacts to the run directory.</p>
+          <div id="audit-banner"></div>
+          <form class="run-form" id="run-form" autocomplete="off">
+            <label class="full">
+              Plan URL
+              <input id="plan-url" type="url" required placeholder="https://dev.azure.com/{org}/{project}/_testPlans/execute?planId={id}" />
+            </label>
+            <label>
+              Work item (optional)
+              <input id="work-item" type="text" placeholder="e.g. 43901" />
+            </label>
+            <label>
+              Platform
+              <select id="platform">
+                <option value="claude-code">claude-code</option>
+                <option value="dsh">dsh</option>
+                <option value="gemini">gemini</option>
+                <option value="minimax">minimax</option>
+              </select>
+            </label>
+            <div class="actions">
+              <button type="button" class="secondary" id="prefill-from-plans">Use selected plan</button>
+              <button type="submit" class="primary" id="submit-run" disabled>Start audit</button>
+            </div>
+          </form>
+        </div>
+
+        <div class="panel" id="active-panel" hidden>
+          <h2>Active run</h2>
+          <p class="description" id="active-summary">—</p>
+          <pre class="log" id="active-log" aria-label="Run log">…</pre>
+          <div style="margin-top: 12px;">
+            <strong>Artifacts</strong>
+            <ul class="artifacts" id="active-artifacts"><li class="muted">none yet</li></ul>
+          </div>
+        </div>
+      </section>
+
+      <section id="view-runs" aria-labelledby="tab-runs" hidden>
+        <div class="panel">
+          <h2>Recent runs</h2>
+          <p class="description">Runs persist under the Mini App data directory.</p>
+          <div id="runs-table-wrap"></div>
+        </div>
+      </section>
+
+      <section id="view-plans" aria-labelledby="tab-plans" hidden>
+        <div class="panel">
+          <h2>Azure DevOps test plans</h2>
+          <p class="description" id="plans-description">Select an ADO plan to prefill the Audit form.</p>
+          <div id="plans-list"></div>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      const $ = (id) => document.getElementById(id);
+      const state = {
+        config: null,
+        runs: [],
+        activeRunId: null,
+        pollHandle: null,
+      };
+
+      const fmt = (iso) => {
+        if (!iso) return '—';
+        try { return new Date(iso).toLocaleString(); } catch { return iso; }
+      };
+
+      function setBanner(target, kind, text) {
+        target.innerHTML = '';
+        if (!text) return;
+        const el = document.createElement('div');
+        el.className = `status-banner ${kind}`;
+        el.setAttribute('role', kind === 'danger' ? 'alert' : 'status');
+        el.textContent = text;
+        target.appendChild(el);
+      }
+
+      async function fetchJson(url, options) {
+        const r = await fetch(url, options);
+        if (!r.ok) {
+          const body = await r.text().catch(() => '');
+          throw new Error(`${r.status}: ${body || r.statusText}`);
+        }
+        return r.json();
+      }
+
+      async function loadConfig() {
+        const cfg = await fetchJson('/api/config');
+        state.config = cfg;
+        const pill = $('config-pill');
+        if (!cfg.cliAvailable) {
+          pill.textContent = 'CLI not built';
+          pill.classList.add('failed');
+        } else if (!cfg.patSet) {
+          pill.textContent = 'PAT not set';
+          pill.classList.add('failed');
+        } else {
+          pill.textContent = `${cfg.defaultOrg}/${cfg.defaultProject}`;
+          pill.classList.add('completed');
+        }
+        $('submit-run').disabled = !cfg.cliAvailable;
+      }
+
+      function switchTab(tab) {
+        for (const id of ['audit', 'runs', 'plans']) {
+          const btn = $(`tab-${id}`);
+          const view = $(`view-${id}`);
+          const active = id === tab;
+          btn.setAttribute('aria-current', active ? 'page' : 'false');
+          view.hidden = !active;
+        }
+        if (tab === 'runs') loadRuns();
+        if (tab === 'plans') loadPlans();
+      }
+
+      async function loadRuns() {
+        const wrap = $('runs-table-wrap');
+        wrap.innerHTML = '<div class="skeleton" style="width: 60%; margin-bottom: 8px;"></div><div class="skeleton" style="width: 80%;"></div>';
+        try {
+          const data = await fetchJson('/api/runs');
+          state.runs = data.runs ?? [];
+          renderRuns();
+        } catch (err) {
+          wrap.innerHTML = `<div class="empty">Failed to load runs: ${escapeHtml(err.message)}</div>`;
+        }
+      }
+
+      function renderRuns() {
+        const wrap = $('runs-table-wrap');
+        if (state.runs.length === 0) {
+          wrap.innerHTML = '<div class="empty">No runs yet. Submit one from the Audit tab.</div>';
+          return;
+        }
+        const table = document.createElement('table');
+        table.innerHTML = `
+          <thead>
+            <tr><th>ID</th><th>Plan</th><th>WI</th><th>Platform</th><th>Status</th><th>Started</th><th>Finished</th><th>Exit</th><th></th></tr>
+          </thead>
+          <tbody>
+            ${state.runs.map((r) => `
+              <tr data-id="${escapeHtml(r.id)}">
+                <td class="mono">${escapeHtml(r.id.slice(0, 18))}…</td>
+                <td><span title="${escapeHtml(r.planUrl)}">${escapeHtml(planLabel(r.planUrl))}</span></td>
+                <td>${escapeHtml(r.workItem ?? '—')}</td>
+                <td>${escapeHtml(r.platform)}</td>
+                <td><span class="pill ${escapeHtml(r.status)}">${escapeHtml(r.status)}</span></td>
+                <td>${escapeHtml(fmt(r.startedAt))}</td>
+                <td>${escapeHtml(fmt(r.finishedAt))}</td>
+                <td class="mono">${r.exitCode == null ? '—' : escapeHtml(String(r.exitCode))}</td>
+                <td><button class="secondary" data-action="open" data-id="${escapeHtml(r.id)}">Open</button></td>
+              </tr>`).join('')}
+          </tbody>`;
+        wrap.innerHTML = '';
+        wrap.appendChild(table);
+        table.querySelectorAll('button[data-action="open"]').forEach((btn) => {
+          btn.addEventListener('click', () => openRun(btn.dataset.id));
+        });
+      }
+
+      function planLabel(url) {
+        if (!url) return '—';
+        const m = url.match(/planId=(\d+)/);
+        return m ? `plan ${m[1]}` : url;
+      }
+
+      async function openRun(runId) {
+        switchTab('audit');
+        state.activeRunId = runId;
+        await refreshActiveRun();
+        startPolling();
+      }
+
+      async function refreshActiveRun() {
+        if (!state.activeRunId) return;
+        try {
+          const run = await fetchJson(`/api/runs/${state.activeRunId}`);
+          renderActive(run);
+          if (run.status === 'running' || run.status === 'queued') startPolling();
+          else stopPolling();
+        } catch (err) {
+          $('active-log').textContent = `Error: ${err.message}`;
+        }
+      }
+
+      function renderActive(run) {
+        $('active-panel').hidden = false;
+        $('active-summary').textContent = `${planLabel(run.planUrl)} · work item ${run.workItem ?? '—'} · ${run.platform}`;
+        $('active-log').textContent = run.logTail || '(no output yet)';
+        const ul = $('active-artifacts');
+        ul.innerHTML = '';
+        if (!run.artifacts || run.artifacts.length === 0) {
+          const li = document.createElement('li');
+          li.className = 'muted';
+          li.textContent = run.status === 'running' || run.status === 'queued' ? 'pending…' : 'none';
+          ul.appendChild(li);
+        } else {
+          for (const name of run.artifacts) {
+            const li = document.createElement('li');
+            const a = document.createElement('a');
+            a.href = `/api/runs/${run.id}/artifacts/${encodeURIComponent(name)}`;
+            a.target = '_blank';
+            a.rel = 'noopener';
+            a.textContent = name;
+            li.appendChild(a);
+            ul.appendChild(li);
+          }
+        }
+      }
+
+      function startPolling() {
+        if (state.pollHandle) return;
+        state.pollHandle = setInterval(refreshActiveRun, 2000);
+      }
+      function stopPolling() {
+        if (state.pollHandle) clearInterval(state.pollHandle);
+        state.pollHandle = null;
+      }
+
+      async function submitRun(event) {
+        event.preventDefault();
+        const body = {
+          planUrl: $('plan-url').value.trim(),
+          workItem: $('work-item').value.trim(),
+          platform: $('platform').value,
+        };
+        if (!body.planUrl) return;
+        setBanner($('audit-banner'), 'info', 'Submitting…');
+        $('submit-run').disabled = true;
+        try {
+          const res = await fetchJson('/api/runs', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(body),
+          });
+          state.activeRunId = res.runId;
+          $('active-panel').hidden = false;
+          $('active-summary').textContent = `${planLabel(body.planUrl)} · work item ${body.workItem || '—'} · ${body.platform}`;
+          $('active-log').textContent = '(starting…)';
+          $('active-artifacts').innerHTML = '<li class="muted">pending…</li>';
+          setBanner($('audit-banner'), 'info', `Run ${res.runId} started.`);
+          switchTab('audit');
+          startPolling();
+        } catch (err) {
+          setBanner($('audit-banner'), 'danger', `Submit failed: ${err.message}`);
+        } finally {
+          $('submit-run').disabled = !(state.config && state.config.cliAvailable);
+        }
+      }
+
+      async function loadPlans() {
+        const target = $('plans-list');
+        target.innerHTML = '<div class="skeleton" style="width: 70%;"></div>';
+        try {
+          const data = await fetchJson(`/api/plans?org=${encodeURIComponent(state.config?.defaultOrg ?? '')}&project=${encodeURIComponent(state.config?.defaultProject ?? '')}`);
+          if (!data.plans || data.plans.length === 0) {
+            target.innerHTML = '<div class="empty">No plans found in this project, or PAT lacks test-plan read scope.</div>';
+            return;
+          }
+          const ul = document.createElement('ul');
+          ul.className = 'artifacts';
+          ul.style.flexDirection = 'column';
+          ul.style.alignItems = 'stretch';
+          for (const p of data.plans) {
+            const li = document.createElement('li');
+            li.style.border = '1px solid var(--mcode-border)';
+            li.style.borderRadius = '8px';
+            li.style.padding = '12px';
+            li.style.background = 'var(--mcode-surface-muted)';
+            li.innerHTML = `
+              <div style="display: flex; justify-content: space-between; gap: 12px; align-items: center;">
+                <div>
+                  <div style="font-weight: 500;">${escapeHtml(p.name)}</div>
+                  <div class="mono" style="color: var(--mcode-text-muted);">plan ${escapeHtml(String(p.id))} · ${escapeHtml(p.state)}</div>
+                </div>
+                <button class="secondary" data-plan="${escapeHtml(String(p.id))}">Use this plan</button>
+              </div>`;
+            li.querySelector('button').addEventListener('click', () => usePlan(p));
+            ul.appendChild(li);
+          }
+          target.innerHTML = '';
+          target.appendChild(ul);
+        } catch (err) {
+          target.innerHTML = `<div class="empty">${escapeHtml(err.message)}</div>`;
+        }
+      }
+
+      function usePlan(plan) {
+        const org = state.config?.defaultOrg ?? '';
+        const project = state.config?.defaultProject ?? '';
+        const url = `https://dev.azure.com/${org}/${project}/_testPlans/execute?planId=${plan.id}`;
+        $('plan-url').value = url;
+        switchTab('audit');
+      }
+
+      function escapeHtml(s) {
+        return String(s).replace(/[&<>"']/g, (c) => ({
+          '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+        })[c]);
+      }
+
+      function applyTheme(theme) {
+        document.documentElement.setAttribute('data-theme', theme);
+        try { localStorage.setItem('qa-board-theme', theme); } catch {}
+      }
+      function initTheme() {
+        let stored = null;
+        try { stored = localStorage.getItem('qa-board-theme'); } catch {}
+        if (stored === 'light' || stored === 'dark') applyTheme(stored);
+        $('theme-toggle').addEventListener('click', () => {
+          const cur = document.documentElement.getAttribute('data-theme');
+          const next = cur === 'dark' ? 'light' : cur === 'light' ? 'auto' : 'dark';
+          if (next === 'auto') {
+            document.documentElement.removeAttribute('data-theme');
+            try { localStorage.setItem('qa-board-theme', 'auto'); } catch {}
+          } else applyTheme(next);
+        });
+      }
+
+      document.addEventListener('DOMContentLoaded', async () => {
+        $('tab-audit').addEventListener('click', () => switchTab('audit'));
+        $('tab-runs').addEventListener('click', () => switchTab('runs'));
+        $('tab-plans').addEventListener('click', () => switchTab('plans'));
+        $('run-form').addEventListener('submit', submitRun);
+        $('prefill-from-plans').addEventListener('click', () => switchTab('plans'));
+        initTheme();
+        try {
+          await loadConfig();
+          if (state.config.cliAvailable) {
+            setBanner($('audit-banner'), 'info', 'Ready. Submit a plan URL or pick one from the Plans tab.');
+          } else {
+            setBanner($('audit-banner'), 'warning', 'qa-agent CLI is not built. Run `npm run build` in the workspace root and reload.');
+          }
+        } catch (err) {
+          setBanner($('audit-banner'), 'danger', `Config load failed: ${err.message}`);
+        }
+      });
+    </script>
+  </body>
+</html>
