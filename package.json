@@ -1,6 +1,6 @@
 {
   "name": "@vuthanh86/qa-agent",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Senior-QA AI orchestrator — generate test cases, audit ADO test plans, run end-to-end UI tests via agent-browser, with platform adapters for DSH, Claude Code, Gemini CLI, and Minimax Code.",
   "repository": {
     "type": "git",

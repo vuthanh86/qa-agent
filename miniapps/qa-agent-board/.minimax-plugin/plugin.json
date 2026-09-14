@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "name": "qa-agent-board",
+  "displayName": "qa-agent-board",
+  "version": "1.0.0",
+  "description": "qa-agent-board Mini App",
+  "author": "User",
+  "icon": "icon.png",
+  "category": "Other",
+  "exampleQueries": [],
+  "apps": [],
+  "mcpServers": [],
+  "skills": []
+}
