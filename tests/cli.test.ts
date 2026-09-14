@@ -675,14 +675,14 @@ describe("actionRun — Mode B", () => {
       workItem: "7",
     });
 
-    expect(mocks.writeFile).toHaveBeenCalledWith(join("runs/x", "ado-audit.md"), "AI OUTPUT");
+    expect(mocks.writeFile).toHaveBeenCalledWith(join("runs/x", "ado-audit-response.md"), "AI OUTPUT");
   });
 
   it("writes the audit and the finalized cases", async () => {
     await cli.actionRun({ action: "run", platform: "dsh", planUrl, outDir: "runs/x" });
 
-    expect(mocks.writeFile).toHaveBeenCalledWith(join("runs/x", "ado-audit.md"), "AI OUTPUT");
-    expect(mocks.writeFile).toHaveBeenCalledWith(join("runs/x", "finalized-cases.md"), "AI OUTPUT");
+    expect(mocks.writeFile).toHaveBeenCalledWith(join("runs/x", "ado-audit-response.md"), "AI OUTPUT");
+    expect(mocks.writeFile).toHaveBeenCalledWith(join("runs/x", "finalized-cases-response.md"), "AI OUTPUT");
   });
 
   it("exits non-zero when the audit invocation fails", async () => {
@@ -772,6 +772,30 @@ describe("actionRun — Mode B", () => {
 
     expect(invoke.mock.calls[0][1].timeoutMs).toBe(90000);
     expect(invoke.mock.calls[1][1].timeoutMs).toBe(90000);
+  });
+
+  it("does not overwrite the agent-written ado-audit.md with CLI stdout", async () => {
+    // The audit prompt instructs the agent to write to ado-audit.md; the CLI
+    // must not clobber it with its own captured stdout.
+    mocks.loadAdapters.mockResolvedValue([adapter("dsh")]);
+
+    await cli.actionRun({ action: "run", platform: "dsh", planUrl, outDir: "runs/x" });
+
+    const writes = mocks.writeFile.mock.calls.map(c => c[0]);
+
+    expect(writes).not.toContain(join("runs/x", "ado-audit.md"));
+    expect(writes).toContain(join("runs/x", "ado-audit-response.md"));
+  });
+
+  it("does not overwrite the agent-written finalized-cases.md with CLI stdout", async () => {
+    mocks.loadAdapters.mockResolvedValue([adapter("dsh")]);
+
+    await cli.actionRun({ action: "run", platform: "dsh", planUrl, outDir: "runs/x" });
+
+    const writes = mocks.writeFile.mock.calls.map(c => c[0]);
+
+    expect(writes).not.toContain(join("runs/x", "finalized-cases.md"));
+    expect(writes).toContain(join("runs/x", "finalized-cases-response.md"));
   });
 
   it("generates an output directory keyed on the plan id", async () => {

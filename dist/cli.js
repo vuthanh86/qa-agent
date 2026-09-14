@@ -381,12 +381,16 @@ async function runModeB(args, planUrl) {
     }
     const auditPrompt = readPrompt("ado-audit.md") ?? "";
     const planData = readFileSafe(join(outDir, "ado-plan.json")) ?? "";
+    // The audit prompt tells the agent to write to ado-audit.md. The CLI's own
+    // stdout goes to a separate file (the convention Mode A uses for
+    // plan-ai-response.md), so neither output clobbers the other.
+    const auditResponsePath = join(outDir, "ado-audit-response.md");
     const fullAuditPrompt = `${auditPrompt}\n\n${storyText}\n\n## Test Plan Data\n\n\`\`\`json\n${planData.slice(0, 100000)}\n\`\`\`\n\nAudit each test case for: accuracy, end-user readiness (preconditions, required params), steps quality, expected results. Produce a keep/update/split/merge/drop verdict per case. Write to ${join(outDir, "ado-audit.md")}.`;
     console.log("  → Invoking AI to audit test cases...");
     try {
         const aiResult = await platform.invoke(fullAuditPrompt, { workDir: process.cwd(), timeoutMs });
-        writeFile(join(outDir, "ado-audit.md"), aiResult);
-        console.log(`  → ${join(outDir, "ado-audit.md")}`);
+        writeFile(auditResponsePath, aiResult);
+        console.log(`  → AI response: ${auditResponsePath}`);
     }
     catch (err) {
         console.error(`  → Audit failed: ${err.message}`);
@@ -398,11 +402,12 @@ async function runModeB(args, planUrl) {
         console.log("  → Skipped — the audit it builds on did not complete.");
     }
     else {
+        const improveResponsePath = join(outDir, "finalized-cases-response.md");
         const improvePrompt = `Read the audit at ${join(outDir, "ado-audit.md")}. For each case with verdict "update", "split", or "merge", draft the improved version with: explicit preconditions, all required params, executable steps, explicit expected results. Write finalized cases to ${join(outDir, "finalized-cases.md")}.`;
         try {
             const aiResult = await platform.invoke(improvePrompt, { workDir: process.cwd(), timeoutMs });
-            writeFile(join(outDir, "finalized-cases.md"), aiResult);
-            console.log(`  → ${join(outDir, "finalized-cases.md")}`);
+            writeFile(improveResponsePath, aiResult);
+            console.log(`  → AI response: ${improveResponsePath}`);
         }
         catch (err) {
             console.error(`  → Improvement failed: ${err.message}`);
@@ -424,7 +429,9 @@ async function runModeB(args, planUrl) {
     // Phase 6 — report
     console.log("\n=== Phase 6: report ===");
     reportArtifact("Audit report", join(outDir, "ado-audit.md"));
+    reportArtifact("Audit response", join(outDir, "ado-audit-response.md"));
     reportArtifact("Finalized cases", join(outDir, "finalized-cases.md"));
+    reportArtifact("Finalized response", join(outDir, "finalized-cases-response.md"));
     reportOutcome(outDir, failures);
 }
 // ─── Main ────────────────────────────────────────────────────────────────────
