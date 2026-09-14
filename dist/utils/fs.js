@@ -1,7 +1,7 @@
 /**
  * File system helpers — directory creation, path resolution, file I/O.
  */
-import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
+import { mkdirSync, writeFileSync, readFileSync, statSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import { homedir } from "node:os";
 /** The qa-agent home directory (machine-wide, repo-agnostic). */
@@ -25,6 +25,15 @@ export function ensureDir(dir) {
 export function writeFile(path, content) {
     ensureDir(dirname(path));
     writeFileSync(path, content, "utf-8");
+}
+/** True when the path exists and is a regular file. */
+export function fileExists(path) {
+    try {
+        return statSync(path).isFile();
+    }
+    catch {
+        return false;
+    }
 }
 /** Read a file, returning null if it doesn't exist. */
 export function readFileSafe(path) {

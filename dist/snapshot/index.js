@@ -5,6 +5,7 @@
  * Requires `agent-browser` on PATH.
  */
 import { execSync } from "node:child_process";
+import { readdirSync } from "node:fs";
 import { join } from "node:path";
 import { ensureDir, readFileSafe, writeFile } from "../utils/fs.js";
 import { memoryDir } from "../utils/fs.js";
@@ -73,7 +74,6 @@ export function listSnapshots(feature, env) {
     const dir = snapshotDir(feature, env);
     const snapshots = [];
     try {
-        const { readdirSync } = require("node:fs");
         const files = readdirSync(dir).filter((f) => f.endsWith(".json"));
         for (const f of files) {
             const raw = readFileSafe(join(dir, f));

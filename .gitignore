@@ -1,1 +1,4 @@
 /node_modules
+/coverage
+/.qa-agent
+/plans

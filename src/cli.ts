@@ -20,13 +20,14 @@ import { runHistory } from "./phases/history.js";
 import { parsePlanUrl } from "./ado/client.js";
 import { saveSnapshot, restoreSnapshot, listSnapshots, isAgentBrowserAvailable } from "./snapshot/index.js";
 import { loadAdapters, PlatformAdapter, detectPlatform } from "./platforms/types.js";
-import { writeFile, readFileSafe, ensureDir, generateOutDir, readPrompt } from "./utils/fs.js";
+import { writeFile, readFileSafe, ensureDir, generateOutDir, readPrompt, fileExists } from "./utils/fs.js";
 import { getDiffFiles, getDiffContent, parseDiffScope } from "./utils/git.js";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-interface CliArgs {
+export interface CliArgs {
   action: string;
   scope?: string;
   base?: string;
@@ -53,7 +54,7 @@ interface CliArgs {
 
 // ─── Arg Parser ──────────────────────────────────────────────────────────────
 
-function parseArgs(raw: string[]): CliArgs {
+export function parseArgs(raw: string[]): CliArgs {
   const args: CliArgs = { action: raw[0] ?? "help" };
   let i = 1;
 
@@ -66,8 +67,8 @@ function parseArgs(raw: string[]): CliArgs {
         val = raw[i + 1];
         i++;
       }
-      // Normalize dots to camelCase for nested flags
-      const normalized = key.replace(/\.([a-z])/g, (_, c) => c.toUpperCase());
+      // Normalize dots and dashes to camelCase: --ado.org -> adoOrg, --plan-url -> planUrl
+      const normalized = key.replace(/[.-]([a-z])/g, (_, c) => c.toUpperCase());
       args[normalized] = val;
     } else if (a.startsWith("-")) {
       args[a.slice(1)] = "true";
@@ -80,7 +81,7 @@ function parseArgs(raw: string[]): CliArgs {
 
 // ─── Help ────────────────────────────────────────────────────────────────────
 
-function showHelp(): void {
+export function showHelp(): void {
   console.log(`
 qa-agent — Senior-QA AI Orchestrator
 
@@ -112,7 +113,7 @@ COMMON FLAGS:
   --history true|false     Render history graph (default: true)
   --ado.org|--ado.project|--ado.planId  ADO target
   --headed true|false      Headed (default true) vs headless
-  --timeboxMs <ms>         Per-case timeout (default: 300000)
+  --timeboxMs <ms>         AI invocation timeout (default: 300000; 600000 for plan audit)
 
 EXAMPLES:
   qa-agent run --scope "diff main...HEAD" --depth smoke --platform dsh
@@ -124,7 +125,7 @@ EXAMPLES:
 
 // ─── Platform Helpers ────────────────────────────────────────────────────────
 
-async function resolvePlatform(args: CliArgs): Promise<PlatformAdapter> {
+export async function resolvePlatform(args: CliArgs): Promise<PlatformAdapter> {
   const adapters = await loadAdapters();
   const platformName = args.platform?.toLowerCase();
 
@@ -154,7 +155,7 @@ async function resolvePlatform(args: CliArgs): Promise<PlatformAdapter> {
 
 // ─── Actions ─────────────────────────────────────────────────────────────────
 
-async function actionCodegen(args: CliArgs): Promise<void> {
+export async function actionCodegen(args: CliArgs): Promise<void> {
   const scope = args.scope ?? "diff origin/main...HEAD";
   const base = args.base ?? "origin/main";
   const depth = (args.depth as "smoke" | "core" | "full") ?? "smoke";
@@ -163,21 +164,21 @@ async function actionCodegen(args: CliArgs): Promise<void> {
   console.log(`[qa-agent] codegen → ${result.planPath} (${result.pathCount} paths)`);
 }
 
-async function actionTranslate(args: CliArgs): Promise<void> {
-  const input = args.scope ?? args.outDir ? join(args.outDir!, "plan.md") : "plans/plan.md";
+export async function actionTranslate(args: CliArgs): Promise<void> {
+  const input = args.scope ?? (args.outDir ? join(args.outDir, "plan.md") : "plans/plan.md");
   const outDir = args.outDir ?? "plans";
 
   const result = runTranslate({ in: input, outDir, target: args.target });
   console.log(`[qa-agent] translate → ${result.scenariosPath} (${result.caseCount} scenario(s))`);
 }
 
-async function actionReport(args: CliArgs): Promise<void> {
+export async function actionReport(args: CliArgs): Promise<void> {
   const runDir = args.outDir ?? ".";
   const result = runReport({ runDir, skipHistory: args.history === "false" });
   console.log(`[qa-agent] report → ${result.reportPath}`);
 }
 
-async function actionHistory(args: CliArgs): Promise<void> {
+export async function actionHistory(args: CliArgs): Promise<void> {
   const outDir = args.outDir ?? ".";
   const result = runHistory({
     outDir,
@@ -188,7 +189,7 @@ async function actionHistory(args: CliArgs): Promise<void> {
   console.log(`[qa-agent] history → ${result.htmlPath}`);
 }
 
-async function actionSnapshot(args: CliArgs): Promise<void> {
+export async function actionSnapshot(args: CliArgs): Promise<void> {
   const feature = args.feature ?? "default";
   const env = args.env ?? "qa";
 
@@ -214,7 +215,31 @@ async function actionSnapshot(args: CliArgs): Promise<void> {
 
 // ─── Run Pipeline ────────────────────────────────────────────────────────────
 
-async function actionRun(args: CliArgs): Promise<void> {
+/**
+ * Close out a run. Exits non-zero when any phase failed so that callers and CI
+ * do not read a partially-executed pipeline as a success.
+ */
+function reportOutcome(outDir: string, failures: string[]): void {
+  if (failures.length === 0) {
+    console.log(`\n[qa-agent] DONE — artifacts under ${outDir}`);
+    return;
+  }
+
+  console.error(`\n[qa-agent] FAILED — ${failures.length} phase(s) did not complete: ${failures.join(", ")}`);
+  console.error(`[qa-agent] Partial artifacts under ${outDir}`);
+  process.exit(1);
+}
+
+/** Log an artifact path only when it was actually written. */
+function reportArtifact(label: string, path: string): void {
+  if (fileExists(path)) {
+    console.log(`  → ${label}: ${path}`);
+  } else {
+    console.log(`  → ${label}: not produced`);
+  }
+}
+
+export async function actionRun(args: CliArgs): Promise<void> {
   const planUrl = args.planUrl;
 
   if (planUrl) {
@@ -234,6 +259,7 @@ async function runModeA(args: CliArgs): Promise<void> {
   const depth = (args.depth as "smoke" | "core" | "full") ?? "smoke";
   const platform = await resolvePlatform(args);
   const outDir = args.outDir ?? generateOutDir(scope);
+  const failures: string[] = [];
 
   console.log(`\n[qa-agent] Mode A — Generate from scratch`);
   console.log(`[qa-agent] Scope: ${scope}  Depth: ${depth}  Platform: ${platform.name}`);
@@ -258,6 +284,7 @@ async function runModeA(args: CliArgs): Promise<void> {
   } catch (err: any) {
     console.error(`  → AI invocation failed: ${err.message}`);
     console.log("  → Continuing with skeleton plan — fill TBDs manually.");
+    failures.push("codegen (AI authoring)");
   }
 
   // Phase 2 — draft test plan
@@ -273,8 +300,10 @@ async function runModeA(args: CliArgs): Promise<void> {
     try {
       const aiResult = await platform.invoke(verifyPrompt, { workDir: process.cwd() });
       writeFile(join(outDir, "verify-report.md"), aiResult);
-    } catch {
-      console.log("  → Verification skipped (AI unavailable)");
+      console.log(`  → ${join(outDir, "verify-report.md")}`);
+    } catch (err: any) {
+      console.error(`  → Verification failed: ${err.message}`);
+      failures.push("verify");
     }
   } else {
     console.log("  → No --work-item provided. Run: qa-agent verify --work-item <id>");
@@ -287,7 +316,8 @@ async function runModeA(args: CliArgs): Promise<void> {
 
   // Phase 5 — e2e
   console.log("\n=== Phase 5: e2e ===");
-  if (isAgentBrowserAvailable()) {
+  const ranE2e = isAgentBrowserAvailable();
+  if (ranE2e) {
     // Write results scaffold
     const resultsScaffold = {
       runId: outDir.split("/").pop() ?? outDir.split("\\").pop(),
@@ -315,6 +345,7 @@ async function runModeA(args: CliArgs): Promise<void> {
       writeFile(join(outDir, "e2e-ai-response.md"), aiResult);
     } catch (err: any) {
       console.error(`  → E2E execution failed: ${err.message}`);
+      failures.push("e2e");
     }
   } else {
     console.log("  → agent-browser not found. Install it for e2e execution.");
@@ -326,11 +357,18 @@ async function runModeA(args: CliArgs): Promise<void> {
   try {
     const reportResult = runReport({ runDir: outDir, skipHistory: args.history === "false" });
     console.log(`  → ${reportResult.reportPath}`);
-  } catch {
-    console.log("  → No results.json yet — report skipped. Run e2e first.");
+  } catch (err: any) {
+    // Missing results.json is expected when e2e never ran; it is only a
+    // failure when e2e was supposed to have produced one.
+    if (ranE2e) {
+      console.error(`  → Report failed: ${err.message}`);
+      failures.push("report");
+    } else {
+      console.log("  → No results.json yet — report skipped. Run e2e first.");
+    }
   }
 
-  console.log(`\n[qa-agent] DONE — artifacts under ${outDir}`);
+  reportOutcome(outDir, failures);
 }
 
 /**
@@ -349,6 +387,9 @@ async function runModeB(args: CliArgs, planUrl: string): Promise<void> {
 
   const { org, project, planId } = parsed;
   const outDir = args.outDir ?? generateOutDir(`ado-plan-${planId}`);
+  const failures: string[] = [];
+  // Auditing a full plan is a long task; allow 10 minutes unless overridden.
+  const timeoutMs = args.timeboxMs ? parseInt(args.timeboxMs, 10) : 600000;
 
   console.log(`\n[qa-agent] Mode B — Audit existing test plan`);
   console.log(`[qa-agent] Org: ${org}  Project: ${project}  Plan: ${planId}`);
@@ -375,7 +416,7 @@ async function runModeB(args: CliArgs, planUrl: string): Promise<void> {
     writeFile(join(outDir, "ado-plan.json"), JSON.stringify({ plan, suites, cases: allCases }, null, 2));
   } catch (err: any) {
     console.error(`  → ADO fetch failed: ${err.message}`);
-    console.error("  → Check ADO_PAT and network access.");
+    console.error("  → Check AZURE_DEVOPS_PAT and network access.");
     process.exit(1);
   }
 
@@ -397,26 +438,37 @@ async function runModeB(args: CliArgs, planUrl: string): Promise<void> {
 
   const auditPrompt = readPrompt("ado-audit.md") ?? "";
   const planData = readFileSafe(join(outDir, "ado-plan.json")) ?? "";
+  // The audit prompt tells the agent to write to ado-audit.md. The CLI's own
+  // stdout goes to a separate file (the convention Mode A uses for
+  // plan-ai-response.md), so neither output clobbers the other.
+  const auditResponsePath = join(outDir, "ado-audit-response.md");
   const fullAuditPrompt = `${auditPrompt}\n\n${storyText}\n\n## Test Plan Data\n\n\`\`\`json\n${planData.slice(0, 100000)}\n\`\`\`\n\nAudit each test case for: accuracy, end-user readiness (preconditions, required params), steps quality, expected results. Produce a keep/update/split/merge/drop verdict per case. Write to ${join(outDir, "ado-audit.md")}.`;
 
   console.log("  → Invoking AI to audit test cases...");
   try {
-    const aiResult = await platform.invoke(fullAuditPrompt, { workDir: process.cwd(), timeoutMs: 300000 });
-    writeFile(join(outDir, "ado-audit.md"), aiResult);
-    console.log(`  → ${join(outDir, "ado-audit.md")}`);
+    const aiResult = await platform.invoke(fullAuditPrompt, { workDir: process.cwd(), timeoutMs });
+    writeFile(auditResponsePath, aiResult);
+    console.log(`  → AI response: ${auditResponsePath}`);
   } catch (err: any) {
     console.error(`  → Audit failed: ${err.message}`);
+    failures.push("audit");
   }
 
-  // Phase 3 — improve (AI)
+  // Phase 3 — improve (AI). Depends on the audit, so skip it if that failed.
   console.log("\n=== Phase 3: improve ===");
-  const improvePrompt = `Read the audit at ${join(outDir, "ado-audit.md")}. For each case with verdict "update", "split", or "merge", draft the improved version with: explicit preconditions, all required params, executable steps, explicit expected results. Write finalized cases to ${join(outDir, "finalized-cases.md")}.`;
-  try {
-    const aiResult = await platform.invoke(improvePrompt, { workDir: process.cwd() });
-    writeFile(join(outDir, "finalized-cases.md"), aiResult);
-    console.log(`  → ${join(outDir, "finalized-cases.md")}`);
-  } catch {
-    console.log("  → Improvement skipped (AI unavailable)");
+  if (failures.includes("audit")) {
+    console.log("  → Skipped — the audit it builds on did not complete.");
+  } else {
+    const improveResponsePath = join(outDir, "finalized-cases-response.md");
+    const improvePrompt = `Read the audit at ${join(outDir, "ado-audit.md")}. For each case with verdict "update", "split", or "merge", draft the improved version with: explicit preconditions, all required params, executable steps, explicit expected results. Write finalized cases to ${join(outDir, "finalized-cases.md")}.`;
+    try {
+      const aiResult = await platform.invoke(improvePrompt, { workDir: process.cwd(), timeoutMs });
+      writeFile(improveResponsePath, aiResult);
+      console.log(`  → AI response: ${improveResponsePath}`);
+    } catch (err: any) {
+      console.error(`  → Improvement failed: ${err.message}`);
+      failures.push("improve");
+    }
   }
 
   // Phase 4 — finalize (write back to plan.md format)
@@ -434,15 +486,17 @@ async function runModeB(args: CliArgs, planUrl: string): Promise<void> {
 
   // Phase 6 — report
   console.log("\n=== Phase 6: report ===");
-  console.log(`  → Audit report: ${join(outDir, "ado-audit.md")}`);
-  console.log(`  → Finalized cases: ${join(outDir, "finalized-cases.md")}`);
+  reportArtifact("Audit report", join(outDir, "ado-audit.md"));
+  reportArtifact("Audit response", join(outDir, "ado-audit-response.md"));
+  reportArtifact("Finalized cases", join(outDir, "finalized-cases.md"));
+  reportArtifact("Finalized response", join(outDir, "finalized-cases-response.md"));
 
-  console.log(`\n[qa-agent] DONE — artifacts under ${outDir}`);
+  reportOutcome(outDir, failures);
 }
 
 // ─── Main ────────────────────────────────────────────────────────────────────
 
-async function main(): Promise<void> {
+export async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
 
   switch (args.action) {
@@ -476,7 +530,20 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch(err => {
-  console.error(`[qa-agent] Fatal error: ${err.message}`);
-  process.exit(1);
-});
+/** True when this module is the process entry point (not an import). */
+function isEntryPoint(): boolean {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  try {
+    return resolve(entry) === resolve(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+if (isEntryPoint()) {
+  main().catch(err => {
+    console.error(`[qa-agent] Fatal error: ${err.message}`);
+    process.exit(1);
+  });
+}

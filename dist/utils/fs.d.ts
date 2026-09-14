@@ -11,6 +11,8 @@ export declare function adoCacheDir(): string;
 export declare function ensureDir(dir: string): string;
 /** Write a file, ensuring the parent directory exists. */
 export declare function writeFile(path: string, content: string): void;
+/** True when the path exists and is a regular file. */
+export declare function fileExists(path: string): boolean;
 /** Read a file, returning null if it doesn't exist. */
 export declare function readFileSafe(path: string): string | null;
 /** Generate a timestamped output directory name. */

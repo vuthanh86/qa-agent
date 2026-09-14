@@ -46,7 +46,7 @@ and outputting instructions for the DSH AI to read from stdout.
 $env:QA_BASE_URL = "https://qa.app.contoso.com"
 $env:QA_USER = "qa-bot"
 $env:QA_PASS = "..."
-$env:ADO_PAT = "..."       # for ADO test plan audit
+$env:AZURE_DEVOPS_PAT = "..."       # for ADO test plan audit
 $env:ADO_ORG = "contoso"
 $env:ADO_PROJECT = "pmi"
 ```

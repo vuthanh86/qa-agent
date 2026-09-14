@@ -6,6 +6,7 @@
 
 import { readFileSafe, writeFile, memoryDir, ensureDir } from "./fs.js";
 import { join } from "node:path";
+import { homedir } from "node:os";
 
 export interface MemoryIndex {
   note: string;
@@ -80,6 +81,6 @@ export function ensureMemoryStore(): void {
 
 /** Resolve the legacy DSH memory path for backward compat. */
 export function legacyMemoryDir(): string {
-  const home = process.env.DSH_HOME ?? join(require("node:os").homedir(), ".dsh");
+  const home = process.env.DSH_HOME ?? join(homedir(), ".dsh");
   return join(home, "qa-memory");
 }

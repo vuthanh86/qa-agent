@@ -8,6 +8,7 @@
 import { execSync, spawn } from "node:child_process";
 import { readFileSafe, writeFile } from "../utils/fs.js";
 import { join } from "node:path";
+import { homedir } from "node:os";
 
 export interface HistoryOptions {
   outDir: string;
@@ -26,7 +27,7 @@ export function runHistory(options: HistoryOptions): HistoryResult {
 
   // Try the existing render-qa-history.mjs if available
   const legacyScript = join(
-    process.env.DSH_HOME ?? join(require("node:os").homedir(), ".dsh"),
+    process.env.DSH_HOME ?? join(homedir(), ".dsh"),
     "qa-agent", "scripts", "render-qa-history.mjs"
   );
 
