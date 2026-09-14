@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
   ensureDir: vi.fn(),
   generateOutDir: vi.fn(),
   readPrompt: vi.fn(),
+  fileExists: vi.fn(),
   getDiffFiles: vi.fn(),
   getDiffContent: vi.fn(),
   parseDiffScope: vi.fn(),
@@ -54,6 +55,7 @@ vi.mock("../src/utils/fs.js", () => ({
   ensureDir: mocks.ensureDir,
   generateOutDir: mocks.generateOutDir,
   readPrompt: mocks.readPrompt,
+  fileExists: mocks.fileExists,
 }));
 vi.mock("../src/utils/git.js", () => ({
   getDiffFiles: mocks.getDiffFiles,
@@ -98,6 +100,7 @@ beforeEach(() => {
   mocks.readPrompt.mockReturnValue("PROMPT");
   mocks.readFileSafe.mockReturnValue("FILE");
   mocks.isAgentBrowserAvailable.mockReturnValue(false);
+  mocks.fileExists.mockReturnValue(true);
   mocks.loadAdapters.mockResolvedValue([adapter("dsh")]);
   mocks.detectPlatform.mockResolvedValue(null);
 });
@@ -445,13 +448,17 @@ describe("actionRun — Mode A", () => {
     );
   });
 
-  it("continues with the skeleton plan when the AI invocation fails", async () => {
+  it("continues with the skeleton plan when the AI invocation fails, then exits non-zero", async () => {
     const invoke = vi.fn(async () => { throw new Error("adapter down"); });
     mocks.loadAdapters.mockResolvedValue([adapter("dsh", invoke)]);
 
-    await cli.actionRun({ action: "run", platform: "dsh", outDir: "runs/x" });
+    await expect(
+      cli.actionRun({ action: "run", platform: "dsh", outDir: "runs/x" }),
+    ).rejects.toThrow(ProcessExit);
 
+    // The mechanical phases still ran; the run is just reported as failed.
     expect(mocks.runTranslate).toHaveBeenCalled();
+    expect(exitSpy).toHaveBeenCalledWith(1);
   });
 
   it("honours --timeboxMs for the codegen invocation", async () => {
@@ -480,7 +487,7 @@ describe("actionRun — Mode A", () => {
     expect(mocks.writeFile).toHaveBeenCalledWith(join("runs/x", "verify-report.md"), "AI OUTPUT");
   });
 
-  it("skips verification when the AI is unavailable", async () => {
+  it("reports a failed verification instead of silently skipping it", async () => {
     const invoke = vi
       .fn()
       .mockResolvedValueOnce("AI OUTPUT")
@@ -488,12 +495,15 @@ describe("actionRun — Mode A", () => {
       .mockResolvedValue("AI OUTPUT");
     mocks.loadAdapters.mockResolvedValue([adapter("dsh", invoke)]);
 
-    await cli.actionRun({ action: "run", platform: "dsh", outDir: "runs/x", workItem: "33672" });
+    await expect(
+      cli.actionRun({ action: "run", platform: "dsh", outDir: "runs/x", workItem: "33672" }),
+    ).rejects.toThrow(ProcessExit);
 
     expect(mocks.writeFile).not.toHaveBeenCalledWith(
       join("runs/x", "verify-report.md"),
       expect.anything(),
     );
+    expect(exitSpy).toHaveBeenCalledWith(1);
   });
 
   it("skips e2e and reports manual scenarios when agent-browser is absent", async () => {
@@ -532,7 +542,7 @@ describe("actionRun — Mode A", () => {
     expect(e2eCall![1].timeoutMs).toBe(600000);
   });
 
-  it("continues to the report when e2e execution fails", async () => {
+  it("continues to the report when e2e execution fails, then exits non-zero", async () => {
     mocks.isAgentBrowserAvailable.mockReturnValue(true);
     const invoke = vi
       .fn()
@@ -540,18 +550,33 @@ describe("actionRun — Mode A", () => {
       .mockRejectedValueOnce(new Error("e2e blew up"));
     mocks.loadAdapters.mockResolvedValue([adapter("dsh", invoke)]);
 
-    await cli.actionRun({ action: "run", platform: "dsh", outDir: "runs/x" });
+    await expect(
+      cli.actionRun({ action: "run", platform: "dsh", outDir: "runs/x" }),
+    ).rejects.toThrow(ProcessExit);
 
     expect(mocks.runReport).toHaveBeenCalled();
   });
 
-  it("tolerates a missing results.json at report time", async () => {
+  it("treats a missing results.json as a skip when e2e never ran", async () => {
+    mocks.isAgentBrowserAvailable.mockReturnValue(false);
     mocks.runReport.mockImplementation(() => { throw new Error("results.json not found"); });
     const logSpy = vi.spyOn(console, "log");
 
     await cli.actionRun({ action: "run", platform: "dsh", outDir: "runs/x" });
 
     expect(logSpy.mock.calls.flat().join("\n")).toContain("No results.json yet");
+    expect(exitSpy).not.toHaveBeenCalled();
+  });
+
+  it("treats a missing results.json as a failure when e2e did run", async () => {
+    mocks.isAgentBrowserAvailable.mockReturnValue(true);
+    mocks.runReport.mockImplementation(() => { throw new Error("results.json not found"); });
+
+    await expect(
+      cli.actionRun({ action: "run", platform: "dsh", outDir: "runs/x" }),
+    ).rejects.toThrow(ProcessExit);
+
+    expect(exitSpy).toHaveBeenCalledWith(1);
   });
 });
 
@@ -660,28 +685,93 @@ describe("actionRun — Mode B", () => {
     expect(mocks.writeFile).toHaveBeenCalledWith(join("runs/x", "finalized-cases.md"), "AI OUTPUT");
   });
 
-  it("keeps going when the audit invocation fails", async () => {
+  it("exits non-zero when the audit invocation fails", async () => {
     const invoke = vi
       .fn()
       .mockRejectedValueOnce(new Error("audit failed"))
       .mockResolvedValue("AI OUTPUT");
     mocks.loadAdapters.mockResolvedValue([adapter("dsh", invoke)]);
 
-    await cli.actionRun({ action: "run", platform: "dsh", planUrl, outDir: "runs/x" });
-
-    expect(mocks.writeFile).toHaveBeenCalledWith(join("runs/x", "finalized-cases.md"), "AI OUTPUT");
+    await expect(
+      cli.actionRun({ action: "run", platform: "dsh", planUrl, outDir: "runs/x" }),
+    ).rejects.toThrow(ProcessExit);
+    expect(exitSpy).toHaveBeenCalledWith(1);
   });
 
-  it("keeps going when the improve invocation fails", async () => {
+  it("skips improve when the audit it depends on failed", async () => {
+    const invoke = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("audit failed"))
+      .mockResolvedValue("AI OUTPUT");
+    mocks.loadAdapters.mockResolvedValue([adapter("dsh", invoke)]);
+
+    await expect(
+      cli.actionRun({ action: "run", platform: "dsh", planUrl, outDir: "runs/x" }),
+    ).rejects.toThrow(ProcessExit);
+
+    // Only the audit was attempted; improve must not run on a missing audit.
+    expect(invoke).toHaveBeenCalledTimes(1);
+    expect(mocks.writeFile).not.toHaveBeenCalledWith(
+      join("runs/x", "finalized-cases.md"),
+      expect.anything(),
+    );
+  });
+
+  it("exits non-zero when the improve invocation fails", async () => {
     const invoke = vi
       .fn()
       .mockResolvedValueOnce("AI OUTPUT")
       .mockRejectedValueOnce(new Error("improve failed"));
     mocks.loadAdapters.mockResolvedValue([adapter("dsh", invoke)]);
 
+    await expect(
+      cli.actionRun({ action: "run", platform: "dsh", planUrl, outDir: "runs/x" }),
+    ).rejects.toThrow(ProcessExit);
+
+    // Finalize still ran before the outcome was reported.
+    expect(mocks.writeFile).toHaveBeenCalledWith(join("runs/x", "plan.md"), expect.anything());
+  });
+
+  it("reports only the artifacts that were actually written", async () => {
+    mocks.fileExists.mockImplementation((p: string) => p.endsWith("ado-audit.md"));
+    const logSpy = vi.spyOn(console, "log");
+
     await cli.actionRun({ action: "run", platform: "dsh", planUrl, outDir: "runs/x" });
 
-    expect(mocks.writeFile).toHaveBeenCalledWith(join("runs/x", "plan.md"), expect.anything());
+    const out = logSpy.mock.calls.flat().join("\n");
+    expect(out).toContain(`Audit report: ${join("runs/x", "ado-audit.md")}`);
+    expect(out).toContain("Finalized cases: not produced");
+  });
+
+  it("exits zero when every phase completes", async () => {
+    await cli.actionRun({ action: "run", platform: "dsh", planUrl, outDir: "runs/x" });
+
+    expect(exitSpy).not.toHaveBeenCalled();
+  });
+
+  it("allows 10 minutes for the audit by default", async () => {
+    const invoke = vi.fn(async () => "AI OUTPUT");
+    mocks.loadAdapters.mockResolvedValue([adapter("dsh", invoke)]);
+
+    await cli.actionRun({ action: "run", platform: "dsh", planUrl, outDir: "runs/x" });
+
+    expect(invoke.mock.calls[0][1].timeoutMs).toBe(600000);
+  });
+
+  it("honours --timeboxMs for both audit and improve", async () => {
+    const invoke = vi.fn(async () => "AI OUTPUT");
+    mocks.loadAdapters.mockResolvedValue([adapter("dsh", invoke)]);
+
+    await cli.actionRun({
+      action: "run",
+      platform: "dsh",
+      planUrl,
+      outDir: "runs/x",
+      timeboxMs: "90000",
+    });
+
+    expect(invoke.mock.calls[0][1].timeoutMs).toBe(90000);
+    expect(invoke.mock.calls[1][1].timeoutMs).toBe(90000);
   });
 
   it("generates an output directory keyed on the plan id", async () => {

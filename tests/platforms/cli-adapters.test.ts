@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { EventEmitter } from "node:events";
+import { PassThrough } from "node:stream";
 
 const execSyncMock = vi.hoisted(() => vi.fn());
 const spawnMock = vi.hoisted(() => vi.fn());
@@ -17,6 +18,14 @@ import type { PlatformAdapter } from "../../src/platforms/types.js";
 class FakeChild extends EventEmitter {
   stdout = new EventEmitter();
   stderr = new EventEmitter();
+  stdin = new PassThrough();
+
+  /** Everything the adapter wrote to stdin. */
+  async stdinText(): Promise<string> {
+    const chunks: Buffer[] = [];
+    for await (const chunk of this.stdin) chunks.push(chunk as Buffer);
+    return Buffer.concat(chunks).toString();
+  }
 }
 
 let tmp: string;
@@ -55,7 +64,8 @@ const cases: Array<{
     bin: "claude",
     versionCmd: "claude --version",
     promptPrefix: "claude-prompt-",
-    expectedArgs: (f) => ["-p", "--print", `$(cat "${f}")`],
+    // The prompt travels on stdin, so no prompt argument appears in argv.
+    expectedArgs: () => ["--print"],
   },
   {
     label: "GeminiAdapter",
@@ -222,22 +232,89 @@ describe.each(cases)("$label", (spec) => {
   });
 });
 
-describe("ClaudeCodeAdapter max tokens", () => {
-  it("passes --max-tokens through when requested", async () => {
-    const promise = new ClaudeCodeAdapter().invoke("p", { workDir: tmp, maxTokens: 4096 });
+describe("ClaudeCodeAdapter prompt delivery", () => {
+  it("sends the prompt on stdin", async () => {
+    const promise = new ClaudeCodeAdapter().invoke("THE FULL PROMPT", { workDir: tmp });
+    const written = child.stdinText();
     onNextTick(() => child.emit("close", 0));
     await promise;
 
-    const args = spawnMock.mock.calls[0][1] as string[];
-    expect(args).toContain("--max-tokens");
-    expect(args[args.indexOf("--max-tokens") + 1]).toBe("4096");
+    expect(await written).toBe("THE FULL PROMPT");
   });
 
-  it("omits --max-tokens by default", async () => {
+  it("opens stdin as a pipe so the prompt can be written", async () => {
     const promise = new ClaudeCodeAdapter().invoke("p", { workDir: tmp });
     onNextTick(() => child.emit("close", 0));
     await promise;
 
+    expect(spawnMock.mock.calls[0][2].stdio).toEqual(["pipe", "pipe", "pipe"]);
+  });
+
+  it("never passes the prompt as a command-line argument", async () => {
+    const promise = new ClaudeCodeAdapter().invoke("THE FULL PROMPT", { workDir: tmp });
+    onNextTick(() => child.emit("close", 0));
+    await promise;
+
+    const args = spawnMock.mock.calls[0][1] as string[];
+    expect(args).not.toContain("THE FULL PROMPT");
+  });
+
+  it("never relies on shell command substitution to read the prompt file", async () => {
+    // spawn() performs no shell expansion, so a "$(cat ...)" argument would
+    // reach the CLI as a literal string and the prompt would be lost.
+    const promise = new ClaudeCodeAdapter().invoke("p", { workDir: tmp });
+    onNextTick(() => child.emit("close", 0));
+    await promise;
+
+    const args = spawnMock.mock.calls[0][1] as string[];
+    expect(args.some(a => a.includes("$("))).toBe(false);
+  });
+
+  it("passes --print exactly once", async () => {
+    const promise = new ClaudeCodeAdapter().invoke("p", { workDir: tmp });
+    onNextTick(() => child.emit("close", 0));
+    await promise;
+
+    const args = spawnMock.mock.calls[0][1] as string[];
+    expect(args.filter(a => a === "--print" || a === "-p")).toEqual(["--print"]);
+  });
+
+  it("omits --max-tokens, which the claude CLI does not accept", async () => {
+    const promise = new ClaudeCodeAdapter().invoke("p", { workDir: tmp, maxTokens: 4096 });
+    onNextTick(() => child.emit("close", 0));
+    await promise;
+
     expect(spawnMock.mock.calls[0][1]).not.toContain("--max-tokens");
+  });
+
+  it("rejects when the child closes stdin before the prompt is written", async () => {
+    const promise = new ClaudeCodeAdapter().invoke("p", { workDir: tmp });
+    onNextTick(() => child.stdin.emit("error", new Error("EPIPE")));
+
+    await expect(promise).rejects.toThrow("EPIPE");
+  });
+
+  it("reports a placeholder when a failing child produced no stderr", async () => {
+    const promise = new ClaudeCodeAdapter().invoke("p", { workDir: tmp });
+    onNextTick(() => child.emit("close", 1));
+
+    await expect(promise).rejects.toThrow("claude exited with code 1: no stderr output");
+  });
+
+  it("names the timeout when the child is killed by a signal", async () => {
+    const promise = new ClaudeCodeAdapter().invoke("p", { workDir: tmp, timeoutMs: 1000 });
+    // A spawn timeout surfaces as a null exit code plus a signal.
+    onNextTick(() => child.emit("close", null, "SIGTERM"));
+
+    await expect(promise).rejects.toThrow(
+      "claude was terminated by SIGTERM after 1000ms; raise the timeout with --timeboxMs if the task needs longer",
+    );
+  });
+
+  it("does not misreport a signal kill as an exit code", async () => {
+    const promise = new ClaudeCodeAdapter().invoke("p", { workDir: tmp });
+    onNextTick(() => child.emit("close", null, "SIGKILL"));
+
+    await expect(promise).rejects.not.toThrow(/exited with code null/);
   });
 });

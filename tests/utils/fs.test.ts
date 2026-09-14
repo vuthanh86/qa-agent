@@ -15,6 +15,7 @@ const {
   adoCacheDir,
   ensureDir,
   writeFile,
+  fileExists,
   readFileSafe,
   generateOutDir,
   packageRoot,
@@ -88,6 +89,30 @@ describe("writeFile", () => {
     writeFile(target, "✅ pass — 日本語");
 
     expect(readFileSync(target, "utf-8")).toBe("✅ pass — 日本語");
+  });
+});
+
+describe("fileExists", () => {
+  it("returns true for an existing file", () => {
+    const target = join(tmp, "present.txt");
+    writeFileSync(target, "content");
+
+    expect(fileExists(target)).toBe(true);
+  });
+
+  it("returns true for an empty file", () => {
+    const target = join(tmp, "empty.txt");
+    writeFileSync(target, "");
+
+    expect(fileExists(target)).toBe(true);
+  });
+
+  it("returns false for a missing file", () => {
+    expect(fileExists(join(tmp, "missing.txt"))).toBe(false);
+  });
+
+  it("returns false for a directory", () => {
+    expect(fileExists(tmp)).toBe(false);
   });
 });
 
